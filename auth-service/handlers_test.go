@@ -115,7 +115,7 @@ func TestValidateKeyHandler(t *testing.T) {
 			if err != nil {
 				t.Fatalf("erro ao criar sqlmock: %v", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			tt.mockSetup(mock)
 
@@ -245,7 +245,7 @@ func TestCreateKeyHandler(t *testing.T) {
 			if err != nil {
 				t.Fatalf("erro ao criar sqlmock: %v", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			tt.mockSetup(mock)
 

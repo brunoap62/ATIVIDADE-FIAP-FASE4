@@ -56,7 +56,7 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 	// 3. Salvar no Cache
 	jsonData, err := json.Marshal(info)
 	if err == nil {
-		a.RedisClient.Set(ctx, cacheKey, jsonData, CACHE_TTL).Err()
+		_ = a.RedisClient.Set(ctx, cacheKey, jsonData, CACHE_TTL).Err()
 	}
 
 	return info, nil
@@ -114,7 +114,7 @@ func (a *App) fetchFlag(flagName string) (*Flag, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar flag-service: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, &NotFoundError{flagName}
@@ -148,7 +148,7 @@ func (a *App) fetchRule(flagName string) (*TargetingRule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar targeting-service: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, &NotFoundError{flagName} // Não é um erro fatal

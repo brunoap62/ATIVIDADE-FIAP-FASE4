@@ -42,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Não foi possível conectar ao banco de dados: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// --- Inicialização Automática de Tabelas ---
 	if err := initDB(db); err != nil {
@@ -103,8 +103,9 @@ func initDB(db *sql.DB) error {
 
 	// Faz o seed dinâmico da chave do evaluation-service a partir do segredo injetado (SSM/ESO),
 	// evitando qualquer chave ou hash hardcoded no repositório.
-	if serviceAPIKey := os.Getenv("SERVICE_API_KEY"); serviceAPIKey != "" {
-		keyHash := hashAPIKey(serviceAPIKey)
+	svcKey := os.Getenv("SERVICE_API_KEY")
+	if svcKey != "" {
+		keyHash := hashAPIKey(svcKey)
 		seedQuery := `
 		INSERT INTO api_keys (name, key_hash) 
 		VALUES ('evaluation-service-key', $1)

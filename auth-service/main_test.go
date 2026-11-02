@@ -20,7 +20,7 @@ func TestInitDB_WithServiceAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("erro ao criar sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	testKey := "tm_key_test_dynamic_seed"
 	t.Setenv("SERVICE_API_KEY", testKey)
