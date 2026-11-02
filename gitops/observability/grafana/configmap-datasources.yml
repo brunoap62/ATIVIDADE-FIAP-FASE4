@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+  labels:
+    app: grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # 1. Prometheus (Métricas de Infraestrutura, Golden Signals e Service Graph)
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus.observability.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+        jsonData:
+          httpMethod: POST
+          timeInterval: 5s
+          exemplarTraceIdDestinations:
+            - name: trace_id
+              datasourceUid: tempo
+
+      # 2. Grafana Tempo (APM, Distributed Tracing & Service Map)
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.observability.svc.cluster.local:3200
+        editable: true
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: '-5m'
+            spanEndTimeShift: '5m'
+            filterByTraceID: false
+            filterBySpanID: false
+            customQuery: true
+            query: '{service_name="${__span.tags["service.name"]}"} |= "${__trace.traceId}"'
+          tracesToMetrics:
+            datasourceUid: prometheus
+            spanStartTimeShift: '-5m'
+            spanEndTimeShift: '5m'
+            tags: [{ key: 'service.name', value: 'service_name' }]
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false
+          lokiSearch:
+            datasourceUid: loki
+
+      # 3. Loki (Centralização de Logs Estruturados com link direto para o Trace no Tempo)
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki.observability.svc.cluster.local:3100
+        editable: true
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: '"trace_id":"([a-f0-9]+)"'
+              name: TraceID
+              url: '$${__value.raw}'
+            - datasourceUid: tempo
+              matcherRegex: 'trace_id=([a-f0-9]+)'
+              name: TraceID
+              url: '$${__value.raw}'
+
+      # 4. Alertmanager (Visibilidade de Alertas e Grupos de Incidente)
+      - name: Alertmanager
+        type: alertmanager
+        uid: alertmanager
+        access: proxy
+        url: http://alertmanager.observability.svc.cluster.local:9093
+        editable: true
+        jsonData:
+          implementation: prometheus

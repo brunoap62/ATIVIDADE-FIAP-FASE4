@@ -5,7 +5,10 @@ resources:
   # 1. Infraestrutura base (Namespace, Ingress)
   - ../../infrastructure/overlays/prod
 
-  # 2. Microsserviços
+  # 2. Stack de Observabilidade & OpenTelemetry (Fase 4)
+  - ../../observability
+
+  # 3. Microsserviços
   - ../../apps/auth-service/overlays/prod
   - ../../apps/flag-service/overlays/prod
   - ../../apps/targeting-service/overlays/prod

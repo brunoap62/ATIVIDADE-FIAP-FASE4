@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    # ============================================================================
+    # Árvore de Roteamento com Prevenção de Alert Fatigue (Disciplina FIAP Fase 4)
+    # ============================================================================
+    route:
+      # Agrupa alertas do mesmo serviço para evitar múltiplos chamados simultâneos
+      group_by: ['alertname', 'service_name', 'namespace']
+      # Aguarda 15s para consolidar alertas do mesmo grupo antes do primeiro envio
+      group_wait: 15s
+      # Intervalo para enviar novos alertas adicionados ao mesmo grupo
+      group_interval: 1m
+      # Evita Alert Fatigue: só reenvia o mesmo alerta se continuar ativo após 1h
+      repeat_interval: 1h
+      receiver: 'self-healing-and-ops'
+
+    # Regras de Inibição (Inhibition): se um serviço estiver totalmente Down (critical),
+    # silencia alertas de warning secundários do mesmo serviço.
+    inhibit_rules:
+      - source_matchers:
+          - severity="critical"
+        target_matchers:
+          - severity="warning"
+        equal: ['service_name', 'namespace']
+
+    receivers:
+      - name: 'self-healing-and-ops'
+        webhook_configs:
+          # Aciona automaticamente o controlador de Self-Healing (Etapa 6)
+          # que também encaminha para ChatOps (Discord/Slack) e PagerDuty/OpsGenie!
+          - url: 'http://self-healing-webhook.observability.svc.cluster.local:8080/webhook'
+            send_resolved: true
