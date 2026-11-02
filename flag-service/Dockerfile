@@ -1,7 +1,7 @@
 # ==============================================================================
 # Estágio 1: Builder - Instalar dependências de forma limpa
 # ==============================================================================
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # ==============================================================================
 # Estágio 2: Imagem final leve e segura para execução (Debian 12 Bookworm LTS)
 # ==============================================================================
-FROM python:3.11-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 # Atualiza pacotes do sistema operacional para garantir zero vulnerabilidades na imagem base
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*

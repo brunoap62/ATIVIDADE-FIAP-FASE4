@@ -1,5 +1,5 @@
 # Estágio 1: Compilar o binário Go
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -17,10 +17,10 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o auth-service .
 
 # Estágio 2: Criar uma imagem de execução mínima
-FROM alpine:3.19
+FROM alpine:3.21
 
-# Instalar certificados CA e dados de timezone (fuso horário)
-RUN apk add --no-cache ca-certificates tzdata
+# Atualizar pacotes do SO e instalar certificados CA e dados de timezone (fuso horário)
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 # Criar um usuário de sistema não-root por segurança
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

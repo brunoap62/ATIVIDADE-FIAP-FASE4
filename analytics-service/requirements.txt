@@ -1,9 +1,5 @@
-Flask==2.2.2
-gunicorn==20.1.0
-python-dotenv==0.21.0
-boto3==1.26.50
-# Necessario adicionar no requirements.txt setuptools<70 para compatibilidade
-setuptools<70
-
-# Necessario para evitar incompatibilidade com o Flask antigo
-Werkzeug<3.0.0
+Flask==3.1.1
+Werkzeug==3.1.3
+gunicorn==23.0.0
+python-dotenv==1.0.1
+boto3==1.37.1

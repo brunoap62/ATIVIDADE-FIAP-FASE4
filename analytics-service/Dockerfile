@@ -1,7 +1,7 @@
 # ==============================================================================
 # Estágio 1: Builder - Instalar dependências em ambiente virtual Alpine
 # ==============================================================================
-FROM python:3.11-alpine AS builder
+FROM python:3.12-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,10 @@ RUN python -m venv /opt/venv && \
 # ==============================================================================
 # Estágio 2: Imagem final Alpine ultra-segura e minimalista (Zero CVEs de SO)
 # ==============================================================================
-FROM python:3.11-alpine
+FROM python:3.12-alpine
+
+# Atualiza pacotes do sistema operacional no Alpine para mitigar CVEs de imagem base
+RUN apk upgrade --no-cache
 
 # Definir variáveis de ambiente recomendadas
 ENV PYTHONDONTWRITEBYTECODE=1 \
