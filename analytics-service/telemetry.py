@@ -7,6 +7,7 @@ import urllib.request
 from flask import request, g, jsonify
 
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "analytics-service")
+POD_NAME = os.getenv("HOSTNAME", f"{SERVICE_NAME}-local")
 CHAOS_STATE = {"enabled": False}
 
 
@@ -80,6 +81,7 @@ def emit_otlp_span(trace_id, span_id, parent_span_id, name, kind, start_ns, end_
                 "resource": {
                     "attributes": [
                         {"key": "service.name", "value": {"stringValue": SERVICE_NAME}},
+                        {"key": "k8s.pod.name", "value": {"stringValue": POD_NAME}},
                         {"key": "deployment.environment", "value": {"stringValue": "production"}},
                     ]
                 },
@@ -117,6 +119,7 @@ def emit_otlp_log(severity, message, status_code=200, route="", trace_id="", spa
                                 "body": {"stringValue": message},
                                 "attributes": [
                                     {"key": "service.name", "value": {"stringValue": SERVICE_NAME}},
+                                    {"key": "k8s.pod.name", "value": {"stringValue": POD_NAME}},
                                     {"key": "http.route", "value": {"stringValue": route}},
                                     {"key": "http.status_code", "value": {"intValue": str(status_code)}},
                                     {"key": "trace_id", "value": {"stringValue": trace_id}},

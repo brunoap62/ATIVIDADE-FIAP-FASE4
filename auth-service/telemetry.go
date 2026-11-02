@@ -76,12 +76,17 @@ func (e *otlpHTTPJSONExporter) ExportSpans(ctx context.Context, spans []sdktrace
 		otlpSpans = append(otlpSpans, spanMap)
 	}
 
+	podName := os.Getenv("HOSTNAME")
+	if podName == "" {
+		podName = "auth-service-local"
+	}
 	payload := map[string]any{
 		"resourceSpans": []map[string]any{
 			{
 				"resource": map[string]any{
 					"attributes": []map[string]any{
 						{"key": "service.name", "value": map[string]any{"stringValue": e.serviceName}},
+						{"key": "k8s.pod.name", "value": map[string]any{"stringValue": podName}},
 						{"key": "deployment.environment", "value": map[string]any{"stringValue": "production"}},
 					},
 				},
@@ -182,15 +187,19 @@ func emitOTLPLog(ctx context.Context, severity, message string, statusCode int, 
 		spanID = spanCtx.SpanID().String()
 	}
 
-	logLine := fmt.Sprintf(`{"service":"auth-service","level":"%s","msg":%q,"route":%q,"status":%d,"trace_id":"%s","span_id":"%s"}`,
-		severity, message, route, statusCode, traceID, spanID)
+	podName := os.Getenv("HOSTNAME")
+	if podName == "" {
+		podName = "auth-service-local"
+	}
+	logLine := fmt.Sprintf(`{"service":"auth-service","pod":%q,"level":"%s","msg":%q,"route":%q,"status":%d,"trace_id":"%s","span_id":"%s"}`,
+		podName, severity, message, route, statusCode, traceID, spanID)
 	log.Println(logLine)
 
 	if otlpHTTPBase == "" {
 		return
 	}
 
-	go func(line, sev, tID, sID string) {
+	go func(line, sev, tID, sID, pod string) {
 		nowNano := fmt.Sprintf("%d", time.Now().UnixNano())
 		payload := map[string]any{
 			"resourceLogs": []map[string]any{
@@ -198,6 +207,7 @@ func emitOTLPLog(ctx context.Context, severity, message string, statusCode int, 
 					"resource": map[string]any{
 						"attributes": []map[string]any{
 							{"key": "service.name", "value": map[string]any{"stringValue": "auth-service"}},
+							{"key": "k8s.pod.name", "value": map[string]any{"stringValue": pod}},
 							{"key": "deployment.environment", "value": map[string]any{"stringValue": "production"}},
 						},
 					},
@@ -231,7 +241,7 @@ func emitOTLPLog(ctx context.Context, severity, message string, statusCode int, 
 		if err == nil {
 			_ = resp.Body.Close()
 		}
-	}(logLine, severity, traceID, spanID)
+	}(logLine, severity, traceID, spanID, podName)
 }
 
 // otelMiddleware extrai o contexto W3C (traceparent), cria o Server Span e registra os 4 Golden Signals
