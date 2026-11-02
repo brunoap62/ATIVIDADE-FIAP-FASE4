@@ -36,8 +36,8 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # Copiar apenas o virtualenv limpo do builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copiar o código da aplicação
-COPY app.py .
+# Copiar o código da aplicação e módulo de telemetria OpenTelemetry
+COPY app.py telemetry.py ./
 
 # Ajustar propriedade dos arquivos
 RUN chown -R appuser:appgroup /app
