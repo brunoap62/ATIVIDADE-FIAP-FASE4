@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -28,6 +27,94 @@ var (
 	otlpHTTPBase string
 	chaosEnabled atomic.Bool
 )
+
+// otlpHTTPJSONExporter implementa sdktrace.SpanExporter enviando OTLP/HTTP JSON direto via net/http
+// (elimina a dependência transitiva google.golang.org/grpc e a CVE-2026-33186)
+type otlpHTTPJSONExporter struct {
+	endpoint    string
+	serviceName string
+	client      *http.Client
+}
+
+func (e *otlpHTTPJSONExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	if e.endpoint == "" || len(spans) == 0 {
+		return nil
+	}
+	otlpSpans := make([]map[string]any, 0, len(spans))
+	for _, s := range spans {
+		attrs := make([]map[string]any, 0, len(s.Attributes()))
+		for _, a := range s.Attributes() {
+			if a.Value.Type() == attribute.INT64 {
+				attrs = append(attrs, map[string]any{
+					"key":   string(a.Key),
+					"value": map[string]any{"intValue": fmt.Sprintf("%d", a.Value.AsInt64())},
+				})
+			} else {
+				attrs = append(attrs, map[string]any{
+					"key":   string(a.Key),
+					"value": map[string]any{"stringValue": a.Value.Emit()},
+				})
+			}
+		}
+		statusCode := 1
+		if s.Status().Code == codes.Error {
+			statusCode = 2
+		}
+		spanMap := map[string]any{
+			"traceId":           s.SpanContext().TraceID().String(),
+			"spanId":            s.SpanContext().SpanID().String(),
+			"name":              s.Name(),
+			"kind":              int(s.SpanKind()),
+			"startTimeUnixNano": fmt.Sprintf("%d", s.StartTime().UnixNano()),
+			"endTimeUnixNano":   fmt.Sprintf("%d", s.EndTime().UnixNano()),
+			"attributes":        attrs,
+			"status":            map[string]any{"code": statusCode, "message": s.Status().Description},
+		}
+		if s.Parent().IsValid() {
+			spanMap["parentSpanId"] = s.Parent().SpanID().String()
+		}
+		otlpSpans = append(otlpSpans, spanMap)
+	}
+
+	payload := map[string]any{
+		"resourceSpans": []map[string]any{
+			{
+				"resource": map[string]any{
+					"attributes": []map[string]any{
+						{"key": "service.name", "value": map[string]any{"stringValue": e.serviceName}},
+						{"key": "deployment.environment", "value": map[string]any{"stringValue": "production"}},
+					},
+				},
+				"scopeSpans": []map[string]any{
+					{
+						"scope": map[string]any{"name": e.serviceName},
+						"spans": otlpSpans,
+					},
+				},
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint+"/v1/traces", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+func (e *otlpHTTPJSONExporter) Shutdown(_ context.Context) error {
+	return nil
+}
 
 // statusRecorder captura o HTTP status code para enriquecer o Span OpenTelemetry
 type statusRecorder struct {
@@ -47,16 +134,14 @@ func initTelemetry(ctx context.Context, serviceName string) func(context.Context
 		endpoint = "http://otel-collector.observability.svc.cluster.local:4318"
 	}
 	otlpHTTPBase = strings.TrimRight(endpoint, "/")
-	endpointHost := strings.TrimPrefix(strings.TrimPrefix(otlpHTTPBase, "http://"), "https://")
+	if !strings.HasPrefix(otlpHTTPBase, "http://") && !strings.HasPrefix(otlpHTTPBase, "https://") {
+		otlpHTTPBase = "http://" + otlpHTTPBase
+	}
 
-	exp, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpoint(endpointHost),
-		otlptracehttp.WithInsecure(),
-	)
-	if err != nil {
-		log.Printf("Aviso: falha ao inicializar exporter OTLP (%v), seguindo com no-op", err)
-		tracer = otel.Tracer(serviceName)
-		return func(context.Context) error { return nil }
+	exp := &otlpHTTPJSONExporter{
+		endpoint:    otlpHTTPBase,
+		serviceName: serviceName,
+		client:      &http.Client{Timeout: 2 * time.Second},
 	}
 
 	res, err := resource.New(ctx,

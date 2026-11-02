@@ -6,6 +6,7 @@ terraform/ingress_output.tf
 *.pdf
 POSTECH - Tech Challenge - Fase 4.pdf
 LEMBRETES.md
+ROTEIRO_TESTES_ETAPAS_1_A_4.md
 AGENTS.md
 .agents/
 CONTROLE_FASE4/
