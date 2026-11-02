@@ -175,7 +175,9 @@ A estimativa oficial foi modelada através da [AWS Pricing Calculator](https://c
 | **IAM IRSA / OIDC** | Autenticação temporária sem chaves estáticas | **$0.00 (Gratuito)** |
 | **TOTAL MENSAL ESTIMADO** | **Ambiente de Produção Completo em Operação 24/7** | **US$ 247.11 / mês** |
 
-> 💡 **Destaques de FinOps:**
+> 💡 **Destaques de FinOps e Decisões Conscientes de Arquitetura:**
+> - **Criptografia em Repouso no RDS (`storage_encrypted = true`):** Todas as 3 instâncias PostgreSQL utilizam volumes `gp3` criptografados via AWS KMS sem custo adicional.
+> - **Política de Backups e Retenção no RDS (`backup_retention_period = 0` e `skip_final_snapshot = true`):** Decisão consciente de FinOps e agilidade operacional para laboratório acadêmico efêmero — evita cobranças residuais de snapshots após o `terraform destroy` e acelera o descomissionamento da infraestrutura, dado que os schemas e dados iniciais são 100% reproduzíveis via *auto-migration* no startup dos serviços. *(Em um cenário produtivo crítico, aplica-se `backup_retention_period = 7` a `35` dias e `multi_az = true`)*.
 > - **DynamoDB Serverless (`PAY_PER_REQUEST`):** Custo praticamente nulo quando ocioso ($0,69/mês), sem pagar por capacidade provisionada desnecessária.
 > - **SSM Parameter Store Standard Tier:** Gestão de segredos e credenciais criptografadas sem custos fixos mensais por segredo.
 > - **ArgoCD via `ClusterIP`:** Economia de ~$20/mês eliminando a necessidade de um segundo Load Balancer dedicado.

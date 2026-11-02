@@ -44,10 +44,11 @@ resource "aws_db_instance" "main" {
   engine_version = "15"
   instance_class = var.db_instance_class
 
-  # Armazenamento mínimo no Free Tier (20GB gp2 sem autoscaling)
+  # Armazenamento mínimo no Free Tier (20GB gp3 sem autoscaling) com criptografia em repouso (KMS)
   allocated_storage     = 20
   max_allocated_storage = 0
-  storage_type          = "gp2"
+  storage_type          = "gp3"
+  storage_encrypted     = true
 
   db_name                = var.db_name
   username               = var.db_username
@@ -55,7 +56,12 @@ resource "aws_db_instance" "main" {
   db_subnet_group_name   = aws_db_subnet_group.rds.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  # Configurações para deleção imediata e zero retenção/custos de backup
+  # Decisão Consciente de FinOps & Ciclo de Vida Efêmero (Ambiente Acadêmico):
+  # - backup_retention_period = 0 e skip_final_snapshot = true foram definidos
+  #   deliberadamente para zerar custos de armazenamento de snapshots pós-destruição
+  #   e permitir teardown rápido via 'terraform destroy', já que o schema e seeds
+  #   são recriados automaticamente via auto-migration dos microsserviços.
+  # - Em ambiente produtivo corporativo, recomenda-se backup_retention_period >= 7 e multi_az = true.
   skip_final_snapshot      = true
   backup_retention_period  = 0
   deletion_protection      = false
