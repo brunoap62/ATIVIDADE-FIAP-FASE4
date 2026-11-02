@@ -167,7 +167,7 @@ jobs:
     name: 🚀 Stage 3 - Terraform Apply (Protected Environment)
     runs-on: ubuntu-latest
     needs: [terraform-plan]
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'apply'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'apply'))
     environment: production
 
     steps:
