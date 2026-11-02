@@ -184,7 +184,7 @@ jobs:
           image-ref: "${{ env.SERVICE_DIR }}:local"
           format: "table"
           severity: "CRITICAL"
-          exit-code: "0"
+          exit-code: "1"
 
       - name: 📄 Gerar Relatório JSON do Container Scan
         uses: aquasecurity/trivy-action@master

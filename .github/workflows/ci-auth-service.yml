@@ -76,7 +76,7 @@ jobs:
           echo "Instalando golangci-lint..."
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.61.0
           echo "Executando análise estática..."
-          golangci-lint run --timeout=5m ./... || echo "⚠️ Linter finalizado com avisos informativos."
+          golangci-lint run --timeout=5m ./...
 
   # ==============================================================================
   # STAGE 1 (PARALELO): SAST com Horusec
@@ -180,7 +180,7 @@ jobs:
           image-ref: "${{ env.SERVICE_DIR }}:local"
           format: "table"
           severity: "CRITICAL"
-          exit-code: "0"
+          exit-code: "1"
 
       - name: 📄 Gerar Relatório JSON do Container Scan
         uses: aquasecurity/trivy-action@master
