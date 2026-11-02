@@ -157,7 +157,7 @@ func initTelemetry(ctx context.Context, serviceName string) func(context.Context
 	}
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exp),
+		sdktrace.WithSyncer(exp),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
@@ -263,6 +263,7 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 			_, _ = rec.Write([]byte(`{"error":"[CHAOS_FAULT_INJECTION] Falha crítica simulada no evaluation-service"}`))
 			span.SetAttributes(attribute.Int("http.status_code", http.StatusInternalServerError))
 			span.SetStatus(codes.Error, "Simulated 500 Internal Server Error for Self-Healing test")
+			span.End()
 			emitOTLPLog(reqCtx, "ERROR", "Falha crítica HTTP 500 no evaluation-service (Chaos Mode ativo)", http.StatusInternalServerError, route)
 			return
 		}
@@ -272,8 +273,10 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 		span.SetAttributes(attribute.Int("http.status_code", rec.statusCode))
 		if rec.statusCode >= 500 {
 			span.SetStatus(codes.Error, http.StatusText(rec.statusCode))
+			span.End()
 			emitOTLPLog(reqCtx, "ERROR", fmt.Sprintf("Erro HTTP %d em %s", rec.statusCode, route), rec.statusCode, route)
 		} else {
+			span.End()
 			emitOTLPLog(reqCtx, "INFO", fmt.Sprintf("Requisição %s %s concluída (%d)", r.Method, route, rec.statusCode), rec.statusCode, route)
 		}
 	}

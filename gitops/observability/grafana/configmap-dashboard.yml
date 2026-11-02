@@ -62,7 +62,7 @@ data:
           "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
           "id": 1,
           "panels": [],
-          "title": "📊 1. Visão Executiva SRE — 4 Golden Signals, Alertas & Self-Healing",
+          "title": "📊 1. Visão Executiva SRE — 4 Golden Signals, Alertas, Pods (HPA) & Nodes do Cluster EKS",
           "type": "row"
         },
         {
@@ -82,7 +82,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
           "id": 2,
           "options": {
             "colorMode": "background",
@@ -96,7 +96,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) or vector(0)",
+              "expr": "sum(rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])) or vector(0)",
               "refId": "A"
             }
           ],
@@ -120,7 +120,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
           "id": 3,
           "options": {
             "colorMode": "background",
@@ -134,7 +134,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "(100 * sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001)) or vector(0)",
+              "expr": "(100 * sum(rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum(rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001)) or vector(0)",
               "refId": "A"
             }
           ],
@@ -158,7 +158,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "gridPos": { "h": 4, "w": 4, "x": 6, "y": 1 },
           "id": 4,
           "options": {
             "colorMode": "background",
@@ -172,7 +172,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
+              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
               "refId": "A"
             }
           ],
@@ -196,7 +196,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "gridPos": { "h": 4, "w": 4, "x": 10, "y": 1 },
           "id": 5,
           "options": {
             "colorMode": "background",
@@ -210,7 +210,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
+              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
               "refId": "A"
             }
           ],
@@ -232,7 +232,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+          "gridPos": { "h": 4, "w": 3, "x": 14, "y": 1 },
           "id": 6,
           "options": {
             "colorMode": "background",
@@ -261,14 +261,15 @@ data:
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  { "color": "blue", "value": null },
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 3 },
                   { "color": "green", "value": 5 }
                 ]
               }
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "gridPos": { "h": 4, "w": 3, "x": 17, "y": 1 },
           "id": 7,
           "options": {
             "colorMode": "background",
@@ -278,11 +279,48 @@ data:
             "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
             "textMode": "auto"
           },
-          "title": "🩺 Pods Saudáveis (EKS)",
+          "title": "🩺 Pods Ativos (HPA)",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "count(up{namespace=\"toggle-master\"} == 1) or vector(5)",
+              "expr": "count(rate(container_cpu_usage_seconds_total{namespace=\"toggle-master\", container!=\"\"}[1m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "blue", "value": 2 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "id": 19,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "🖥️ Nodes EKS Ativos (Cluster)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count(up{job=\"kubernetes-nodes\"} == 1) or vector(0)",
               "refId": "A"
             }
           ],
@@ -328,7 +366,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "100 * (sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
+              "expr": "100 * (sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
               "legendFormat": "{{service_name}} (5xx %)",
               "refId": "A"
             }
@@ -353,7 +391,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "loki", "uid": "loki" },
-              "expr": "{service_name=~\"$service\"} |= \"ERROR\"",
+              "expr": "{service_name=~\".+\"} |= \"ERROR\"",
               "refId": "A"
             }
           ],
@@ -387,25 +425,25 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
               "legendFormat": "p50 (Mediana) - {{service_name}}",
               "refId": "A"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
               "legendFormat": "p90 - {{service_name}}",
               "refId": "B"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
               "legendFormat": "p95 (SLA) - {{service_name}}",
               "refId": "C"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
               "legendFormat": "p99 (Tail Latency) - {{service_name}}",
               "refId": "D"
             }
@@ -459,7 +497,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
+              "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
               "legendFormat": "{{service_name}}",
               "refId": "A"
             }
@@ -475,7 +513,7 @@ data:
             {
               "datasource": { "type": "tempo", "uid": "tempo" },
               "limit": 20,
-              "query": "{ resource.service.name =~ \"$service\" }",
+              "query": "{ resource.service.name =~ \".+\" }",
               "queryType": "traceql",
               "refId": "A",
               "tableType": "traces"
@@ -488,8 +526,53 @@ data:
           "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
           "id": 16,
           "panels": [],
-          "title": "☸️ 4. Saturação K8s (CPU, Memória, HPA & Pods) Lado a Lado com Stream Completo de Logs (Loki)",
+          "title": "☸️ 4. Escalabilidade do Cluster EKS, HPA & Saturação Lado a Lado com Stream Completo de Logs (Loki)",
           "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "lineInterpolation": "stepAfter" },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 33 },
+          "id": 20,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "🖥️ Escalabilidade do Cluster EKS (Worker Nodes Ativos) & Réplicas de Pods (HPA)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count(up{job=\"kubernetes-nodes\"} == 1)",
+              "legendFormat": "🖥️ Total Worker Nodes Ativos (EKS Cluster)",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count by (topology_kubernetes_io_zone) (up{job=\"kubernetes-nodes\"} == 1)",
+              "legendFormat": "🌐 Nodes EKS na Zona: {{topology_kubernetes_io_zone}}",
+              "refId": "B"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count(rate(container_cpu_usage_seconds_total{namespace=\"toggle-master\", container!=\"\"}[1m]))",
+              "legendFormat": "☸️ Total Pods Ativos (toggle-master)",
+              "refId": "C"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count by (container) (rate(container_cpu_usage_seconds_total{namespace=\"toggle-master\", container!=\"\"}[1m]))",
+              "legendFormat": "📦 Réplicas HPA: {{container}}",
+              "refId": "D"
+            }
+          ],
+          "type": "timeseries"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -501,32 +584,26 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 33 },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 39 },
           "id": 17,
           "options": {
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
-          "title": "📈 Golden Signal: Saturation — CPU (Cores), Memória e Réplicas Ativas dos Pods no EKS",
+          "title": "📈 Golden Signal: Saturation — Uso de CPU (Cores) por Pod no EKS",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
               "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"toggle-master\", container!=\"\"}[1m]))",
               "legendFormat": "CPU: {{pod}}",
               "refId": "A"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "count by (app) (up{namespace=\"toggle-master\"} == 1)",
-              "legendFormat": "Réplicas Saudáveis (HPA/Self-Healing): {{app}}",
-              "refId": "B"
             }
           ],
           "type": "timeseries"
         },
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 33 },
+          "gridPos": { "h": 12, "w": 12, "x": 12, "y": 33 },
           "id": 18,
           "options": {
             "dedupStrategy": "none",
@@ -542,7 +619,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "loki", "uid": "loki" },
-              "expr": "{service_name=~\"$service\"}",
+              "expr": "{service_name=~\".+\"}",
               "refId": "A"
             }
           ],
@@ -552,30 +629,10 @@ data:
       "refresh": "5s",
       "schemaVersion": 39,
       "templating": {
-        "list": [
-          {
-            "allValue": ".+",
-            "current": { "selected": true, "text": "All", "value": "$__all" },
-            "hide": 0,
-            "includeAll": true,
-            "label": "Microsserviço",
-            "multi": false,
-            "name": "service",
-            "options": [
-              { "selected": true, "text": "All", "value": "$__all" },
-              { "selected": false, "text": "auth-service", "value": "auth-service" },
-              { "selected": false, "text": "flag-service", "value": "flag-service" },
-              { "selected": false, "text": "targeting-service", "value": "targeting-service" },
-              { "selected": false, "text": "evaluation-service", "value": "evaluation-service" },
-              { "selected": false, "text": "analytics-service", "value": "analytics-service" }
-            ],
-            "query": "auth-service,flag-service,targeting-service,evaluation-service,analytics-service",
-            "type": "custom"
-          }
-        ]
+        "list": []
       },
       "time": { "from": "now-15m", "to": "now" },
       "title": "ToggleMaster — SRE 4 Golden Signals, APM & Self-Healing",
       "uid": "togglemaster-sre-golden-signals",
-      "version": 1
+      "version": 2
     }

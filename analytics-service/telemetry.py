@@ -147,6 +147,8 @@ def instrument_flask_app(app):
                 f"[CHAOS_MODE_ENABLED] Injeção de falhas HTTP 500 ativada no {SERVICE_NAME}!",
                 200,
                 "/chaos",
+                getattr(g, "trace_id", ""),
+                getattr(g, "span_id", ""),
             )
         elif enable in ("false", "0"):
             CHAOS_STATE["enabled"] = False
@@ -155,6 +157,8 @@ def instrument_flask_app(app):
                 f"[CHAOS_MODE_DISABLED] Injeção de falhas desativada no {SERVICE_NAME}.",
                 200,
                 "/chaos",
+                getattr(g, "trace_id", ""),
+                getattr(g, "span_id", ""),
             )
         return jsonify({"service": SERVICE_NAME, "chaos_enabled": CHAOS_STATE["enabled"]}), 200
 
