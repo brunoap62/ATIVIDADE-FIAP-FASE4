@@ -11,6 +11,10 @@ resource "aws_dynamodb_table" "analytics" {
     type = "S"
   }
 
+  server_side_encryption {
+    enabled = true
+  }
+
   tags = {
     Name = var.table_name
   }

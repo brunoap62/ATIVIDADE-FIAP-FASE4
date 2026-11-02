@@ -1,0 +1,18 @@
+# ==============================================================================
+# Exceções Arquiteturais Documentadas para o Scan IaC (Trivy Config)
+# ==============================================================================
+# AVD-AWS-0104: Egress 0.0.0.0/0 nos Security Groups é necessário para que os
+# nós do EKS (em subnets privadas via NAT Gateway) baixem imagens Docker, charts
+# Helm (ArgoCD, Ingress NGINX, ESO) e se comuniquem com as APIs públicas da AWS.
+AVD-AWS-0104
+
+# AVD-AWS-0040 / AVD-AWS-0041: Endpoint público da API do EKS é necessário para
+# permitir que os runners dinâmicos do GitHub Actions (IPs públicos variáveis)
+# executem comandos kubectl/helm durante o CI/CD. A autenticação permanece
+# protegida via AWS IAM + OIDC.
+AVD-AWS-0040
+AVD-AWS-0041
+
+# AVD-AWS-0057: A policy do External Secrets Operator requer kms:Decrypt para
+# descriptografar parâmetros SecureString do AWS SSM Parameter Store.
+AVD-AWS-0057

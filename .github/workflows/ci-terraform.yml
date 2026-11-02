@@ -1,0 +1,202 @@
+name: 🏗️ Terraform IaC - DevSecOps Pipeline (Fmt, Validate, Scan, Plan & Apply)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/ci-terraform.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/ci-terraform.yml"
+  workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: "Modo de execução da pipeline IaC"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_WORKING_DIR: terraform
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+  TF_VAR_project_name: ${{ secrets.PROJECT_NAME || 'toggle-master-fase3' }}
+  TF_VAR_aws_region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+  TF_VAR_auth_db_username: ${{ secrets.TF_VAR_AUTH_DB_USERNAME || 'jojoadmin' }}
+  TF_VAR_auth_db_password: ${{ secrets.TF_VAR_AUTH_DB_PASSWORD || 'TempPlanPassword123!' }}
+  TF_VAR_flag_db_username: ${{ secrets.TF_VAR_FLAG_DB_USERNAME || 'flagadmin' }}
+  TF_VAR_flag_db_password: ${{ secrets.TF_VAR_FLAG_DB_PASSWORD || 'TempPlanPassword123!' }}
+  TF_VAR_targeting_db_username: ${{ secrets.TF_VAR_TARGETING_DB_USERNAME || 'targetingadmin' }}
+  TF_VAR_targeting_db_password: ${{ secrets.TF_VAR_TARGETING_DB_PASSWORD || 'TempPlanPassword123!' }}
+  TF_VAR_master_key: ${{ secrets.TF_VAR_MASTER_KEY || 'temp-plan-master-key' }}
+  TF_VAR_evaluation_service_api_key: ${{ secrets.TF_VAR_EVALUATION_SERVICE_API_KEY || 'tm_key_0000000000000000000000000000000000000000000000000000000000000000' }}
+
+jobs:
+  # ==============================================================================
+  # STAGE 1A (PARALELO): Formatação e Validação Sintática do Terraform
+  # ==============================================================================
+  fmt-and-validate:
+    name: 🔍 Stage 1A - Terraform Fmt & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: 🎨 Verificar Formatação (terraform fmt -check)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check -recursive
+
+      - name: ⚙️ Inicializar Módulos Locais (sem backend remoto)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -backend=false
+
+      - name: ✅ Validar Sintaxe e Tipos (terraform validate)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+  # ==============================================================================
+  # STAGE 1B (PARALELO): Scan de Segurança IaC com Trivy Config (Bloqueante)
+  # ==============================================================================
+  iac-security-scan:
+    name: 🛡️ Stage 1B - IaC Security Scan (Trivy Config)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔍 Executar Trivy IaC Config Scan (Bloqueante para CRITICAL)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "${{ env.TF_WORKING_DIR }}"
+          trivyignores: "${{ env.TF_WORKING_DIR }}/.trivyignore"
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: 📄 Gerar Relatório JSON do Scan IaC
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          scan-type: "config"
+          scan-ref: "${{ env.TF_WORKING_DIR }}"
+          trivyignores: "${{ env.TF_WORKING_DIR }}/.trivyignore"
+          format: "json"
+          output: "trivy-iac-results.json"
+
+      - name: 📤 Upload Relatório Trivy IaC
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-iac-report
+          path: trivy-iac-results.json
+          retention-days: 30
+
+  # ==============================================================================
+  # STAGE 2: Terraform Plan (Converge após Fmt/Validate e IaC Security Scan)
+  # ==============================================================================
+  terraform-plan:
+    name: 📋 Stage 2 - Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [fmt-and-validate, iac-security-scan]
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: 🔑 Configurar Credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🗄️ Terraform Init (Backend Remoto S3)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -input=false
+
+      - name: 📋 Executar Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform plan -input=false -no-color -out=tfplan | tee plan_output.txt
+
+      - name: 📤 Upload Artefato do Plano (tfplan)
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-artifact
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+          retention-days: 5
+
+      - name: 📊 Publicar Resumo do Plan no Step Summary
+        if: always()
+        run: |
+          echo "## 🏗️ Resumo do Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **1A - Fmt & Validate** | ✅ Aprovado |" >> $GITHUB_STEP_SUMMARY
+          echo "| **1B - Trivy IaC Security Scan** | ✅ Aprovado (0 Critical) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **2 - Terraform Plan** | ✅ Plano Gerado |" >> $GITHUB_STEP_SUMMARY
+
+  # ==============================================================================
+  # STAGE 3: Terraform Apply (Protegido por Aprovação / Ambiente Production)
+  # ==============================================================================
+  terraform-apply:
+    name: 🚀 Stage 3 - Terraform Apply (Protected Environment)
+    runs-on: ubuntu-latest
+    needs: [terraform-plan]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'apply'
+    environment: production
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: 🔑 Configurar Credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🗄️ Terraform Init (Backend Remoto S3)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -input=false
+
+      - name: 📥 Download Artefato do Plano (tfplan)
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-artifact
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: 🚀 Executar Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -input=false -auto-approve tfplan
