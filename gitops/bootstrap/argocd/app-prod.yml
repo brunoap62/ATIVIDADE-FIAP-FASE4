@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/brunoap62/ATIVIDADE-FIAP-FASE3.git
+    repoURL: https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4.git
     targetRevision: main
     path: gitops/overlays/prod
   destination:
