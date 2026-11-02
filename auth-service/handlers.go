@@ -7,6 +7,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Estrutura para o corpo da requisição de criação de chave
@@ -42,9 +46,19 @@ func (a *App) validateKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Calcula o hash da chave recebida
 	keyHash := hashAPIKey(keyString)
 
+	// Cria Span filho de consulta ao PostgreSQL (auth_db) para o Trace Distribuído
+	_, dbSpan := otel.Tracer("auth-service").Start(r.Context(), "postgres.validate_api_key",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.name", "auth_db"),
+			attribute.String("db.operation", "SELECT"),
+		),
+	)
 	// Verifica se o hash existe no banco de dados
 	var id int
 	err := a.DB.QueryRow("SELECT id FROM api_keys WHERE key_hash = $1 AND is_active = true", keyHash).Scan(&id)
+	dbSpan.End()
 	if err != nil {
 		// Se não encontrar (sql.ErrNoRows), ou qualquer outro erro, a chave é inválida
 		log.Printf("Falha na validação da chave (hash: %s...): %v", keyHash[:6], err)

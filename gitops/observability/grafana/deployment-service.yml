@@ -29,6 +29,8 @@ spec:
               value: "Admin"
             - name: GF_FEATURE_TOGGLES_ENABLE
               value: "tempoSearch tempoBackendSearch tempoServiceGraph traceqlEditor"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/togglemaster-golden-signals.json"
           readinessProbe:
             httpGet:
               path: /api/health
@@ -51,12 +53,22 @@ spec:
           volumeMounts:
             - name: grafana-datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboard-golden-signals
+              mountPath: /var/lib/grafana/dashboards
             - name: grafana-storage
               mountPath: /var/lib/grafana
       volumes:
         - name: grafana-datasources
           configMap:
             name: grafana-datasources
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: grafana-dashboard-golden-signals
+          configMap:
+            name: grafana-dashboard-golden-signals
         - name: grafana-storage
           emptyDir: {}
 ---

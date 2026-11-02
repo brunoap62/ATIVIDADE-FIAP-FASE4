@@ -1,0 +1,581 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: observability
+  labels:
+    app: grafana
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'ToggleMaster SRE Dashboards'
+        orgId: 1
+        folder: 'ToggleMaster SRE'
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-golden-signals
+  namespace: observability
+  labels:
+    app: grafana
+data:
+  togglemaster-golden-signals.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "enable": true,
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "iconColor": "red",
+            "name": "🚨 Alerta em Firing (Incidente Ativo)",
+            "titleFormat": "Alerta: {{alertname}} ({{service_name}})"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 1,
+          "panels": [],
+          "title": "📊 1. Visão Executiva SRE — 4 Golden Signals, Alertas & Self-Healing",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "blue", "value": 10 }
+                ]
+              },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "id": 2,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "🚦 Traffic (RPS Total)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "id": 3,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "🔥 Errors (Taxa 5xx %)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(100 * sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001)) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 250 },
+                  { "color": "red", "value": 500 }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "id": 4,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "⏱️ Latency p95 Global",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 500 },
+                  { "color": "red", "value": 1000 }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "id": 5,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "⚡ Latency p99 (Tail)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+          "id": 6,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "🚨 Alertas Ativos (Firing)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "blue", "value": null },
+                  { "color": "green", "value": 5 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "id": 7,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "title": "🩺 Pods Saudáveis (EKS)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count(up{namespace=\"toggle-master\"} == 1) or vector(5)",
+              "refId": "A"
+            }
+          ],
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+          "id": 8,
+          "panels": [],
+          "title": "🔍 2. Diagnóstico Lado a Lado: Taxa de Erros (Esquerda) ➔ Logs de Causa Raiz no Loki (Direita)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineWidth": 2,
+                "thresholdsStyle": { "mode": "line+area" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+          "id": 9,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "🔥 Golden Signal: Errors — Taxa de Erro HTTP 5xx por Microsserviço (Threshold Alerta = 5%)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "100 * (sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
+              "legendFormat": "{{service_name}} (5xx %)",
+              "refId": "A"
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+          "id": 10,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "🪵 Causa Raiz Imediata: Logs de ERRO em Tempo Real (Loki c/ TraceID clicável)",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "{service_name=~\"$service\"} |= \"ERROR\"",
+              "refId": "A"
+            }
+          ],
+          "type": "logs"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+          "id": 11,
+          "panels": [],
+          "title": "⚡ 3. Performance & APM Lado a Lado: Latência (p50/p90/p95/p99) & RPS (Esquerda) ➔ Service Map & Traces no Tempo (Direita)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2 },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "id": 12,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "⏱️ Golden Signal: Latency — Percentis p50, p90, p95 e p99 (ms)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "legendFormat": "p50 (Mediana) - {{service_name}}",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "legendFormat": "p90 - {{service_name}}",
+              "refId": "B"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "legendFormat": "p95 (SLA) - {{service_name}}",
+              "refId": "C"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
+              "legendFormat": "p99 (Tail Latency) - {{service_name}}",
+              "refId": "D"
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "id": 13,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "🗺️ Service Graph Metrics: Chamadas Entre Microsserviços (Client ➔ Server RPS)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum by (client, server) (rate(traces_service_graph_request_total[1m]))",
+              "legendFormat": "{{client}} ➔ {{server}}",
+              "refId": "A"
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "bars", "fillOpacity": 40, "lineWidth": 1, "stacking": { "group": "A", "mode": "normal" } },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "id": 14,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "🚦 Golden Signal: Traffic — Volume de Requisições por Segundo (RPS por Serviço)",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
+              "legendFormat": "{{service_name}}",
+              "refId": "A"
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "id": 15,
+          "title": "🔎 Distributed Tracing (Grafana Tempo) — Clique no TraceID para abrir o Flamegraph",
+          "targets": [
+            {
+              "datasource": { "type": "tempo", "uid": "tempo" },
+              "limit": 20,
+              "query": "{ resource.service.name =~ \"$service\" }",
+              "queryType": "traceql",
+              "refId": "A",
+              "tableType": "traces"
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+          "id": 16,
+          "panels": [],
+          "title": "☸️ 4. Saturação K8s (CPU, Memória, HPA & Pods) Lado a Lado com Stream Completo de Logs (Loki)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 33 },
+          "id": 17,
+          "options": {
+            "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "title": "📈 Golden Signal: Saturation — CPU (Cores), Memória e Réplicas Ativas dos Pods no EKS",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"toggle-master\", container!=\"\"}[1m]))",
+              "legendFormat": "CPU: {{pod}}",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "count by (app) (up{namespace=\"toggle-master\"} == 1)",
+              "legendFormat": "Réplicas Saudáveis (HPA/Self-Healing): {{app}}",
+              "refId": "B"
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 33 },
+          "id": 18,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "📜 Stream Completo de Logs Estruturados OTLP (INFO / WARN / ERROR) com TraceID",
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "{service_name=~\"$service\"}",
+              "refId": "A"
+            }
+          ],
+          "type": "logs"
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 39,
+      "templating": {
+        "list": [
+          {
+            "allValue": ".*",
+            "current": { "selected": true, "text": "All", "value": "$__all" },
+            "hide": 0,
+            "includeAll": true,
+            "label": "Microsserviço",
+            "multi": false,
+            "name": "service",
+            "options": [
+              { "selected": true, "text": "All", "value": "$__all" },
+              { "selected": false, "text": "auth-service", "value": "auth-service" },
+              { "selected": false, "text": "flag-service", "value": "flag-service" },
+              { "selected": false, "text": "targeting-service", "value": "targeting-service" },
+              { "selected": false, "text": "evaluation-service", "value": "evaluation-service" },
+              { "selected": false, "text": "analytics-service", "value": "analytics-service" }
+            ],
+            "query": "auth-service,flag-service,targeting-service,evaluation-service,analytics-service",
+            "type": "custom"
+          }
+        ]
+      },
+      "time": { "from": "now-15m", "to": "now" },
+      "title": "ToggleMaster — SRE 4 Golden Signals, APM & Self-Healing",
+      "uid": "togglemaster-sre-golden-signals",
+      "version": 1
+    }

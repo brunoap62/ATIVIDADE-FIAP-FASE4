@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	// "fmt"
 	"log"
@@ -49,21 +50,30 @@ func main() {
 		log.Fatalf("Erro ao inicializar tabelas do banco de dados: %v", err)
 	}
 
+	// --- Inicialização do OpenTelemetry (Traces & Logs OTLP) ---
+	ctx := context.Background()
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "auth-service"
+	}
+	shutdownTelemetry := initTelemetry(ctx, serviceName)
+	defer func() { _ = shutdownTelemetry(ctx) }()
+
 	app := &App{
 		DB:         db,
 		MasterKey:  masterKey,
 	}
 
-	// --- Rotas da API ---
+	// --- Rotas da API (Instrumentadas com OpenTelemetry) ---
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", app.healthHandler)
-
-	// Endpoint público para validar uma chave
-	mux.HandleFunc("/validate", app.validateKeyHandler)
+	mux.HandleFunc("/health", app.otelMiddleware("/health", app.healthHandler))
+	mux.HandleFunc("/validate", app.otelMiddleware("/validate", app.validateKeyHandler))
+	mux.HandleFunc("/chaos", app.otelMiddleware("/chaos", app.chaosHandler))
 
 	// Endpoints de "admin" para criar/gerenciar chaves
 	// Eles são protegidos pelo middleware de autenticação
-	mux.Handle("/admin/keys", app.masterKeyAuthMiddleware(http.HandlerFunc(app.createKeyHandler)))
+	adminHandler := app.masterKeyAuthMiddleware(http.HandlerFunc(app.createKeyHandler))
+	mux.HandleFunc("/admin/keys", app.otelMiddleware("/admin/keys", adminHandler.ServeHTTP))
 
 	log.Printf("Serviço de Autenticação (Go) rodando na porta %s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

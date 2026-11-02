@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -10,6 +11,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -18,9 +24,9 @@ const (
 )
 
 // getDecision é o wrapper principal
-func (a *App) getDecision(userID, flagName string) (bool, error) {
+func (a *App) getDecision(reqCtx context.Context, userID, flagName string) (bool, error) {
 	// 1. Obter os dados da flag (do cache ou dos serviços)
-	info, err := a.getCombinedFlagInfo(flagName)
+	info, err := a.getCombinedFlagInfo(reqCtx, flagName)
 	if err != nil {
 		return false, err
 	}
@@ -30,25 +36,37 @@ func (a *App) getDecision(userID, flagName string) (bool, error) {
 }
 
 // getCombinedFlagInfo busca os dados no Redis, com fallback para os microsserviços
-func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
+func (a *App) getCombinedFlagInfo(reqCtx context.Context, flagName string) (*CombinedFlagInfo, error) {
 	cacheKey := fmt.Sprintf("flag_info:%s", flagName)
 
-	// 1. Tentar buscar do Cache (Redis)
-	val, err := a.RedisClient.Get(ctx, cacheKey).Result()
+	// 1. Tentar buscar do Cache (Redis) registrando Span OpenTelemetry
+	_, redisSpan := otel.Tracer("evaluation-service").Start(reqCtx, "redis.get_flag_cache",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "GET"),
+			attribute.String("flag.name", flagName),
+		),
+	)
+	val, err := a.RedisClient.Get(reqCtx, cacheKey).Result()
 	if err == nil {
 		// Cache HIT
 		var info CombinedFlagInfo
 		if err := json.Unmarshal([]byte(val), &info); err == nil {
+			redisSpan.SetAttributes(attribute.Bool("cache.hit", true))
+			redisSpan.End()
 			log.Printf("Cache HIT para flag '%s'", flagName)
 			return &info, nil
 		}
 		// Se o unmarshal falhar, trata como cache miss
 		log.Printf("Erro ao desserializar cache para flag '%s': %v", flagName, err)
 	}
-	
+	redisSpan.SetAttributes(attribute.Bool("cache.hit", false))
+	redisSpan.End()
+
 	log.Printf("Cache MISS para flag '%s'", flagName)
-	// 2. Cache MISS - Buscar dos serviços
-	info, err := a.fetchFromServices(flagName)
+	// 2. Cache MISS - Buscar dos serviços propagando o TraceContext!
+	info, err := a.fetchFromServices(reqCtx, flagName)
 	if err != nil {
 		return nil, err
 	}
@@ -56,14 +74,14 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 	// 3. Salvar no Cache
 	jsonData, err := json.Marshal(info)
 	if err == nil {
-		_ = a.RedisClient.Set(ctx, cacheKey, jsonData, CACHE_TTL).Err()
+		_ = a.RedisClient.Set(reqCtx, cacheKey, jsonData, CACHE_TTL).Err()
 	}
 
 	return info, nil
 }
 
 // fetchFromServices busca dados do flag-service e targeting-service concorrentemente
-func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
+func (a *App) fetchFromServices(reqCtx context.Context, flagName string) (*CombinedFlagInfo, error) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -74,13 +92,13 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 	// Goroutine 1: Buscar do flag-service
 	go func() {
 		defer wg.Done()
-		flagInfo, flagErr = a.fetchFlag(flagName)
+		flagInfo, flagErr = a.fetchFlag(reqCtx, flagName)
 	}()
 
 	// Goroutine 2: Buscar do targeting-service
 	go func() {
 		defer wg.Done()
-		ruleInfo, ruleErr = a.fetchRule(flagName)
+		ruleInfo, ruleErr = a.fetchRule(reqCtx, flagName)
 	}()
 
 	wg.Wait()
@@ -99,22 +117,34 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 }
 
 // fetchFlag (função helper)
-func (a *App) fetchFlag(flagName string) (*Flag, error) {
+func (a *App) fetchFlag(reqCtx context.Context, flagName string) (*Flag, error) {
+	spanCtx, span := otel.Tracer("evaluation-service").Start(reqCtx, "GET flag-service /flags",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "GET"),
+			attribute.String("peer.service", "flag-service"),
+			attribute.String("flag.name", flagName),
+		),
+	)
+	defer span.End()
+
 	url := fmt.Sprintf("%s/flags/%s", a.FlagServiceURL, flagName)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(spanCtx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição para flag-service: %w", err)
 	}
+	otel.GetTextMapPropagator().Inject(spanCtx, propagation.HeaderCarrier(req.Header))
 	if a.ApiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+a.ApiKey)
 	}
-	
+
 	resp, err := a.HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar flag-service: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, &NotFoundError{flagName}
@@ -134,21 +164,33 @@ func (a *App) fetchFlag(flagName string) (*Flag, error) {
 	return &flag, nil
 }
 
-func (a *App) fetchRule(flagName string) (*TargetingRule, error) {
+func (a *App) fetchRule(reqCtx context.Context, flagName string) (*TargetingRule, error) {
+	spanCtx, span := otel.Tracer("evaluation-service").Start(reqCtx, "GET targeting-service /rules",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("http.method", "GET"),
+			attribute.String("peer.service", "targeting-service"),
+			attribute.String("flag.name", flagName),
+		),
+	)
+	defer span.End()
+
 	url := fmt.Sprintf("%s/rules/%s", a.TargetingServiceURL, flagName)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(spanCtx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição para targeting-service: %w", err)
 	}
+	otel.GetTextMapPropagator().Inject(spanCtx, propagation.HeaderCarrier(req.Header))
 	if a.ApiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+a.ApiKey)
 	}
-	
+
 	resp, err := a.HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar targeting-service: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, &NotFoundError{flagName} // Não é um erro fatal

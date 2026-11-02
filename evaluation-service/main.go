@@ -93,6 +93,14 @@ func main() {
 		Timeout: 5 * time.Second,
 	}
 
+	// --- Inicializa OpenTelemetry (Traces & Logs OTLP) ---
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "evaluation-service"
+	}
+	shutdownTelemetry := initTelemetry(ctx, serviceName)
+	defer func() { _ = shutdownTelemetry(ctx) }()
+
 	// Cria a instância da App
 	app := &App{
 		RedisClient:         rdb,
@@ -106,13 +114,15 @@ func main() {
 
 	// --- Rotas (compatibilidade com Ingress rewrite e chamadas diretas) ---
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", app.healthHandler)
-	mux.HandleFunc("/evaluate-api/health", app.healthHandler)
-	mux.HandleFunc("/evaluate", app.evaluationHandler)
-	mux.HandleFunc("/evaluate/", app.evaluationHandler)
-	mux.HandleFunc("/evaluate-api/evaluate", app.evaluationHandler)
-	mux.HandleFunc("/evaluate-api/evaluate/", app.evaluationHandler)
-	mux.HandleFunc("/evaluate-api", app.evaluationHandler)
+	mux.HandleFunc("/health", app.otelMiddleware("/health", app.healthHandler))
+	mux.HandleFunc("/evaluate-api/health", app.otelMiddleware("/health", app.healthHandler))
+	mux.HandleFunc("/chaos", app.otelMiddleware("/chaos", app.chaosHandler))
+	mux.HandleFunc("/evaluate-api/chaos", app.otelMiddleware("/chaos", app.chaosHandler))
+	mux.HandleFunc("/evaluate", app.otelMiddleware("/evaluate", app.evaluationHandler))
+	mux.HandleFunc("/evaluate/", app.otelMiddleware("/evaluate", app.evaluationHandler))
+	mux.HandleFunc("/evaluate-api/evaluate", app.otelMiddleware("/evaluate", app.evaluationHandler))
+	mux.HandleFunc("/evaluate-api/evaluate/", app.otelMiddleware("/evaluate", app.evaluationHandler))
+	mux.HandleFunc("/evaluate-api", app.otelMiddleware("/evaluate", app.evaluationHandler))
 
 	server := &http.Server{
 		Addr:              ":" + port,

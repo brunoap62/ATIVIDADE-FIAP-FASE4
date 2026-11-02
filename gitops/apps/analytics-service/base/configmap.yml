@@ -6,3 +6,5 @@ metadata:
 data:
   PORT: "8005"
   AWS_REGION: "us-east-2"
+  OTEL_SERVICE_NAME: "analytics-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"

@@ -6,3 +6,5 @@ metadata:
 data:
   PORT: "8002"
   AUTH_SERVICE_URL: "http://auth-service:8001"
+  OTEL_SERVICE_NAME: "flag-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"

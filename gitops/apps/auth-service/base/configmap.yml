@@ -5,3 +5,5 @@ metadata:
   namespace: toggle-master
 data:
   PORT: "8001"
+  OTEL_SERVICE_NAME: "auth-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"

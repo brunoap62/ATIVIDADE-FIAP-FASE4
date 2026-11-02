@@ -9,15 +9,18 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from functools import wraps
 import logging
+import time
+from telemetry import instrument_flask_app, get_outbound_trace_headers, emit_otlp_span
 
 # Configura o logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 # Carrega .env para desenvolvimento local
-load_dotenv() 
+load_dotenv()
 
 app = Flask(__name__)
+instrument_flask_app(app)
 
 # --- Configuração ---
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -90,8 +93,22 @@ def require_auth(f):
         
         try:
             validate_url = f"{AUTH_SERVICE_URL}/validate"
-            response = requests.get(validate_url, headers={"Authorization": auth_header}, timeout=3)
-            
+            trace_headers, trace_id, c_span_id, p_span_id = get_outbound_trace_headers()
+            headers = {"Authorization": auth_header, **trace_headers}
+            start_ns = time.time_ns()
+            response = requests.get(validate_url, headers=headers, timeout=3)
+            emit_otlp_span(
+                trace_id=trace_id,
+                span_id=c_span_id,
+                parent_span_id=p_span_id,
+                name="GET auth-service/validate",
+                kind=3,
+                start_ns=start_ns,
+                end_ns=time.time_ns(),
+                status_code=response.status_code,
+                attrs={"peer.service": "auth-service", "http.url": validate_url},
+            )
+
             if response.status_code != 200:
                 log.warning(f"Falha na validação da chave (status: {response.status_code})")
                 return jsonify({"error": "Chave de API inválida"}), 401
