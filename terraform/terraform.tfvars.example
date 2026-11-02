@@ -24,6 +24,9 @@ targeting_db_password = "SubstituaPorUmaSenhaSegura789!"
 # Chave Mestre de Administração (auth-service)
 master_key = "SubstituaPorUmaChaveSecreta123"
 
+# Chave de API Interna do Evaluation Service (gerada com prefixo tm_key_)
+evaluation_service_api_key = "tm_key_SubstituaPorUmaChaveSecretaGeradaAleatoriamente"
+
 # ==============================================================================
 # Configurações Opcionais de Recursos & Dimensionamento (FinOps Defaults)
 # ==============================================================================

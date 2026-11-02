@@ -48,6 +48,12 @@ variable "master_key" {
   sensitive   = true
 }
 
+variable "evaluation_service_api_key" {
+  description = "Chave de API interna para o evaluation-service consultar flag-service e targeting-service"
+  type        = string
+  sensitive   = true
+}
+
 variable "flag_db_username" {
   description = "Usuário master do banco RDS PostgreSQL do flag-service"
   type        = string

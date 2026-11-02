@@ -200,7 +200,7 @@ module "ssm_parameters" {
   redis_port     = module.redis.redis_port
 
   sqs_queue_id               = module.sqs.queue_id
-  evaluation_service_api_key = "tm_key_6b520f748ba29f18771ff653ea0444723ccc0cacd2276c2a6d25919a4d2737bb"
+  evaluation_service_api_key = var.evaluation_service_api_key
   dynamodb_table_name        = module.dynamodb.table_name
 
   depends_on = [

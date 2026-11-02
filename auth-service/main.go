@@ -96,14 +96,23 @@ func initDB(db *sql.DB) error {
 		is_active BOOLEAN DEFAULT true,
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);
-
-	INSERT INTO api_keys (name, key_hash) 
-	VALUES ('evaluation-service-key', '18b75b4dd04fc7a5c81044bfa796f653c09e97a61a5673d7f5663e9f87d0e377')
-	ON CONFLICT (key_hash) DO NOTHING;
 	`
-	_, err := db.Exec(query)
-	if err != nil {
+	if _, err := db.Exec(query); err != nil {
 		return err
+	}
+
+	// Faz o seed dinâmico da chave do evaluation-service a partir do segredo injetado (SSM/ESO),
+	// evitando qualquer chave ou hash hardcoded no repositório.
+	if serviceAPIKey := os.Getenv("SERVICE_API_KEY"); serviceAPIKey != "" {
+		keyHash := hashAPIKey(serviceAPIKey)
+		seedQuery := `
+		INSERT INTO api_keys (name, key_hash) 
+		VALUES ('evaluation-service-key', $1)
+		ON CONFLICT (key_hash) DO NOTHING;
+		`
+		if _, err := db.Exec(seedQuery, keyHash); err != nil {
+			return err
+		}
 	}
 
 	log.Println("Tabela 'api_keys' e chaves padrão verificadas/criadas com sucesso!")

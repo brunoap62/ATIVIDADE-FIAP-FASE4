@@ -6,6 +6,9 @@ terraform/ingress_output.tf
 *.pdf
 POSTECH - Tech Challenge - Fase 4.pdf
 LEMBRETES.md
+AGENTS.md
+.agents/
+CONTROLE_FASE4/
 *.old
 DUVIDAS_TECHCHALLANGE.MD
 ANNOTATIONS/
