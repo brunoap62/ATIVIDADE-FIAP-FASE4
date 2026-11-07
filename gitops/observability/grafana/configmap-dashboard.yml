@@ -70,6 +70,7 @@ data:
           "fieldConfig": {
             "defaults": {
               "color": { "mode": "thresholds" },
+              "decimals": 0,
               "mappings": [],
               "thresholds": {
                 "mode": "absolute",
@@ -78,11 +79,11 @@ data:
                   { "color": "blue", "value": 10 }
                 ]
               },
-              "unit": "reqps"
+              "unit": "none"
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+          "gridPos": { "h": 4, "w": 5, "x": 0, "y": 1 },
           "id": 2,
           "options": {
             "colorMode": "background",
@@ -92,11 +93,11 @@ data:
             "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
             "textMode": "auto"
           },
-          "title": "🚦 Traffic (RPS Total)",
+          "title": "🚦 Total de Requisições",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "sum(rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])) or vector(0)",
+              "expr": "sum(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", http_route!=\"/health\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -120,7 +121,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+          "gridPos": { "h": 4, "w": 5, "x": 5, "y": 1 },
           "id": 3,
           "options": {
             "colorMode": "background",
@@ -150,89 +151,13 @@ data:
                 "mode": "absolute",
                 "steps": [
                   { "color": "green", "value": null },
-                  { "color": "yellow", "value": 250 },
-                  { "color": "red", "value": 500 }
-                ]
-              },
-              "unit": "ms"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 4, "w": 4, "x": 6, "y": 1 },
-          "id": 4,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-            "textMode": "auto"
-          },
-          "title": "⏱️ Latency p95 Global",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
-              "refId": "A"
-            }
-          ],
-          "type": "stat"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "thresholds" },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null },
-                  { "color": "orange", "value": 500 },
-                  { "color": "red", "value": 1000 }
-                ]
-              },
-              "unit": "ms"
-            },
-            "overrides": []
-          },
-          "gridPos": { "h": 4, "w": 4, "x": 10, "y": 1 },
-          "id": 5,
-          "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-            "textMode": "auto"
-          },
-          "title": "⚡ Latency p99 (Tail)",
-          "targets": [
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le)) or vector(0)",
-              "refId": "A"
-            }
-          ],
-          "type": "stat"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": {
-            "defaults": {
-              "color": { "mode": "thresholds" },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null },
                   { "color": "red", "value": 1 }
                 ]
               }
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 3, "x": 14, "y": 1 },
+          "gridPos": { "h": 4, "w": 4, "x": 10, "y": 1 },
           "id": 6,
           "options": {
             "colorMode": "background",
@@ -269,7 +194,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 3, "x": 17, "y": 1 },
+          "gridPos": { "h": 4, "w": 5, "x": 14, "y": 1 },
           "id": 7,
           "options": {
             "colorMode": "background",
@@ -306,7 +231,7 @@ data:
             },
             "overrides": []
           },
-          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "gridPos": { "h": 4, "w": 5, "x": 19, "y": 1 },
           "id": 19,
           "options": {
             "colorMode": "background",
@@ -421,31 +346,13 @@ data:
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
-          "title": "⏱️ Golden Signal: Latency — Percentis p50, p90, p95 e p99 (ms)",
+          "title": "⏱️ Golden Signal: Latency — Latência por Microsserviço (ms)",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
-              "legendFormat": "p50 (Mediana) - {{service}}",
+              "expr": "1000 * (sum by (service) (rate(traces_spanmetrics_latency_sum{span_kind=\"SPAN_KIND_SERVER\"}[1m])) / clamp_min(sum by (service) (rate(traces_spanmetrics_latency_count{span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
+              "legendFormat": "{{service}}",
               "refId": "A"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
-              "legendFormat": "p90 - {{service}}",
-              "refId": "B"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
-              "legendFormat": "p95 (SLA) - {{service}}",
-              "refId": "C"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
-              "legendFormat": "p99 (Tail Latency) - {{service}}",
-              "refId": "D"
             }
           ],
           "type": "timeseries"
@@ -483,7 +390,8 @@ data:
             "defaults": {
               "color": { "mode": "palette-classic" },
               "custom": { "drawStyle": "bars", "fillOpacity": 40, "lineWidth": 1, "stacking": { "group": "A", "mode": "normal" } },
-              "unit": "reqps"
+              "decimals": 0,
+              "unit": "none"
             },
             "overrides": []
           },
@@ -493,11 +401,11 @@ data:
             "legend": { "calcs": ["mean", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
-          "title": "🚦 Golden Signal: Traffic — Volume de Requisições por Segundo (RPS por Serviço)",
+          "title": "🚦 Golden Signal: Traffic — Volume de Requisições por Microsserviço",
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
+              "expr": "sum by (service) (traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", http_route!=\"/health\"})",
               "legendFormat": "{{service}}",
               "refId": "A"
             }
@@ -513,7 +421,7 @@ data:
             {
               "datasource": { "type": "tempo", "uid": "tempo" },
               "limit": 20,
-              "query": "{ resource.service.name =~ \".+\" }",
+              "query": "{ resource.service.name =~ \".+\" && name !~ \".*health.*\" }",
               "queryType": "traceql",
               "refId": "A",
               "tableType": "traces"
@@ -619,7 +527,7 @@ data:
           "targets": [
             {
               "datasource": { "type": "loki", "uid": "loki" },
-              "expr": "{service_name=~\".+\"}",
+              "expr": "{service_name=~\".+\"} != \"/health\"",
               "refId": "A"
             }
           ],
