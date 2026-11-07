@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -46,6 +47,19 @@ func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// 2.5 Enriquecer o Server Span ativo com o resultado da avaliação da Feature Flag
+	variant := "disabled"
+	if result {
+		variant = "enabled"
+	}
+	trace.SpanFromContext(r.Context()).SetAttributes(
+		attribute.String("feature_flag.key", flagName),
+		attribute.String("feature_flag.provider_name", "ToggleMaster"),
+		attribute.String("feature_flag.variant", variant),
+		attribute.Bool("feature_flag.result.enabled", result),
+		attribute.String("enduser.id", userID),
+	)
 
 	// 3. Enviar evento para SQS (assincronamente) preservando o SpanContext para o Trace Distribuído!
 	asyncCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(r.Context()))

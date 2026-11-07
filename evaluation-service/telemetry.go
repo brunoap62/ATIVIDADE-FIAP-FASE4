@@ -43,12 +43,18 @@ func (e *otlpHTTPJSONExporter) ExportSpans(ctx context.Context, spans []sdktrace
 	for _, s := range spans {
 		attrs := make([]map[string]any, 0, len(s.Attributes()))
 		for _, a := range s.Attributes() {
-			if a.Value.Type() == attribute.INT64 {
+			switch a.Value.Type() {
+			case attribute.INT64:
 				attrs = append(attrs, map[string]any{
 					"key":   string(a.Key),
 					"value": map[string]any{"intValue": fmt.Sprintf("%d", a.Value.AsInt64())},
 				})
-			} else {
+			case attribute.BOOL:
+				attrs = append(attrs, map[string]any{
+					"key":   string(a.Key),
+					"value": map[string]any{"boolValue": a.Value.AsBool()},
+				})
+			default:
 				attrs = append(attrs, map[string]any{
 					"key":   string(a.Key),
 					"value": map[string]any{"stringValue": a.Value.Emit()},
@@ -79,19 +85,32 @@ func (e *otlpHTTPJSONExporter) ExportSpans(ctx context.Context, spans []sdktrace
 	if podName == "" {
 		podName = "evaluation-service-local"
 	}
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-east-2"
+	}
 	payload := map[string]any{
 		"resourceSpans": []map[string]any{
 			{
 				"resource": map[string]any{
 					"attributes": []map[string]any{
 						{"key": "service.name", "value": map[string]any{"stringValue": e.serviceName}},
-						{"key": "k8s.pod.name", "value": map[string]any{"stringValue": podName}},
+						{"key": "service.namespace", "value": map[string]any{"stringValue": "toggle-master"}},
+						{"key": "service.version", "value": map[string]any{"stringValue": "1.0.0"}},
 						{"key": "deployment.environment", "value": map[string]any{"stringValue": "production"}},
+						{"key": "k8s.cluster.name", "value": map[string]any{"stringValue": "toggle-master-eks"}},
+						{"key": "k8s.namespace.name", "value": map[string]any{"stringValue": "toggle-master"}},
+						{"key": "k8s.pod.name", "value": map[string]any{"stringValue": podName}},
+						{"key": "cloud.provider", "value": map[string]any{"stringValue": "aws"}},
+						{"key": "cloud.platform", "value": map[string]any{"stringValue": "aws_eks"}},
+						{"key": "cloud.region", "value": map[string]any{"stringValue": region}},
+						{"key": "telemetry.sdk.name", "value": map[string]any{"stringValue": "opentelemetry"}},
+						{"key": "telemetry.sdk.language", "value": map[string]any{"stringValue": "go"}},
 					},
 				},
 				"scopeSpans": []map[string]any{
 					{
-						"scope": map[string]any{"name": e.serviceName},
+						"scope": map[string]any{"name": e.serviceName, "version": "1.0.0"},
 						"spans": otlpSpans,
 					},
 				},
@@ -247,13 +266,49 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 			tracer = otel.Tracer("evaluation-service")
 		}
 
+		fullTarget := r.URL.Path
+		if r.URL.RawQuery != "" {
+			fullTarget = r.URL.Path + "?" + r.URL.RawQuery
+		}
+		scheme := r.Header.Get("X-Forwarded-Proto")
+		if scheme == "" {
+			scheme = "http"
+		}
+		clientIP := r.Header.Get("X-Forwarded-For")
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+
+		spanAttrs := []attribute.KeyValue{
+			attribute.String("http.method", r.Method),
+			attribute.String("http.route", route),
+			attribute.String("http.target", fullTarget),
+			attribute.String("url.path", r.URL.Path),
+			attribute.String("http.host", r.Host),
+			attribute.String("http.scheme", scheme),
+			attribute.String("http.user_agent", r.UserAgent()),
+			attribute.String("client.address", clientIP),
+		}
+		if r.URL.RawQuery != "" {
+			spanAttrs = append(spanAttrs, attribute.String("url.query", r.URL.RawQuery))
+		}
+		if userID := r.URL.Query().Get("user_id"); userID != "" {
+			spanAttrs = append(spanAttrs,
+				attribute.String("enduser.id", userID),
+				attribute.String("togglemaster.user_id", userID),
+			)
+		}
+		if flagName := r.URL.Query().Get("flag_name"); flagName != "" {
+			spanAttrs = append(spanAttrs,
+				attribute.String("feature_flag.key", flagName),
+				attribute.String("feature_flag.provider_name", "ToggleMaster"),
+				attribute.String("togglemaster.flag_name", flagName),
+			)
+		}
+
 		reqCtx, span := tracer.Start(reqCtx, fmt.Sprintf("%s %s", r.Method, route),
 			trace.WithSpanKind(trace.SpanKindServer),
-			trace.WithAttributes(
-				attribute.String("http.method", r.Method),
-				attribute.String("http.route", route),
-				attribute.String("http.target", r.URL.Path),
-			),
+			trace.WithAttributes(spanAttrs...),
 		)
 		defer span.End()
 
@@ -265,7 +320,7 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 			span.SetAttributes(attribute.Int("http.status_code", http.StatusInternalServerError))
 			span.SetStatus(codes.Error, "Simulated 500 Internal Server Error for Self-Healing test")
 			span.End()
-			emitOTLPLog(reqCtx, "ERROR", "Falha crítica HTTP 500 no evaluation-service (Chaos Mode ativo)", http.StatusInternalServerError, route)
+			emitOTLPLog(reqCtx, "ERROR", fmt.Sprintf("Falha crítica HTTP 500 no evaluation-service em %s (Chaos Mode ativo)", fullTarget), http.StatusInternalServerError, route)
 			return
 		}
 
@@ -275,10 +330,10 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 		if rec.statusCode >= 500 {
 			span.SetStatus(codes.Error, http.StatusText(rec.statusCode))
 			span.End()
-			emitOTLPLog(reqCtx, "ERROR", fmt.Sprintf("Erro HTTP %d em %s", rec.statusCode, route), rec.statusCode, route)
+			emitOTLPLog(reqCtx, "ERROR", fmt.Sprintf("Erro HTTP %d em %s %s", rec.statusCode, r.Method, fullTarget), rec.statusCode, route)
 		} else {
 			span.End()
-			emitOTLPLog(reqCtx, "INFO", fmt.Sprintf("Requisição %s %s concluída (%d)", r.Method, route, rec.statusCode), rec.statusCode, route)
+			emitOTLPLog(reqCtx, "INFO", fmt.Sprintf("Requisição %s %s concluída (%d)", r.Method, fullTarget, rec.statusCode), rec.statusCode, route)
 		}
 	}
 }

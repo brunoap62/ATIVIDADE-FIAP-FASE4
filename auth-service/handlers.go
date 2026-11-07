@@ -52,19 +52,26 @@ func (a *App) validateKeyHandler(w http.ResponseWriter, r *http.Request) {
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.name", "auth_db"),
+			attribute.String("db.sql.table", "api_keys"),
 			attribute.String("db.operation", "SELECT"),
+			attribute.String("auth.key_hash_prefix", keyHash[:6]),
 		),
 	)
 	// Verifica se o hash existe no banco de dados
 	var id int
 	err := a.DB.QueryRow("SELECT id FROM api_keys WHERE key_hash = $1 AND is_active = true", keyHash).Scan(&id)
-	dbSpan.End()
 	if err != nil {
+		dbSpan.SetAttributes(attribute.Bool("auth.valid", false))
+		dbSpan.End()
+		trace.SpanFromContext(r.Context()).SetAttributes(attribute.Bool("auth.valid", false))
 		// Se não encontrar (sql.ErrNoRows), ou qualquer outro erro, a chave é inválida
 		log.Printf("Falha na validação da chave (hash: %s...): %v", keyHash[:6], err)
 		http.Error(w, "Chave de API inválida ou inativa", http.StatusUnauthorized)
 		return
 	}
+	dbSpan.SetAttributes(attribute.Bool("auth.valid", true), attribute.Int("auth.key_id", id))
+	dbSpan.End()
+	trace.SpanFromContext(r.Context()).SetAttributes(attribute.Bool("auth.valid", true), attribute.Int("auth.key_id", id))
 
 	// Chave válida
 	w.Header().Set("Content-Type", "application/json")

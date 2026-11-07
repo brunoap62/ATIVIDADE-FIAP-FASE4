@@ -90,7 +90,16 @@ def process_message(message):
             start_ns=ddb_start,
             end_ns=time.time_ns(),
             status_code=200,
-            attrs={"db.system": "dynamodb", "db.operation": "PutItem", "peer.service": "dynamodb"},
+            attrs={
+                "db.system": "dynamodb",
+                "db.operation": "PutItem",
+                "aws.dynamodb.table_names": DYNAMODB_TABLE_NAME,
+                "peer.service": "dynamodb",
+                "feature_flag.key": body["flag_name"],
+                "enduser.id": body["user_id"],
+                "feature_flag.result.enabled": str(body["result"]).lower(),
+                "togglemaster.event_id": event_id,
+            },
         )
 
         log.info(f"Evento {event_id} (Flag: {body['flag_name']}) salvo no DynamoDB.")
@@ -110,7 +119,16 @@ def process_message(message):
             start_ns=start_ns,
             end_ns=time.time_ns(),
             status_code=200,
-            attrs={"messaging.system": "aws_sqs", "flag.name": body['flag_name']},
+            attrs={
+                "messaging.system": "aws_sqs",
+                "messaging.operation": "process",
+                "messaging.message.id": message.get("MessageId", ""),
+                "feature_flag.key": body["flag_name"],
+                "flag.name": body["flag_name"],
+                "enduser.id": body["user_id"],
+                "feature_flag.result.enabled": str(body["result"]).lower(),
+                "togglemaster.event_id": event_id,
+            },
         )
         emit_otlp_log(
             "INFO",
@@ -123,13 +141,34 @@ def process_message(message):
 
     except json.JSONDecodeError:
         log.error(f"Erro ao decodificar JSON da mensagem ID: {message['MessageId']}")
-        emit_otlp_log("ERROR", f"Erro JSONDecodeError na mensagem SQS {message['MessageId']}", 500, "sqs/process_message", trace_id, consumer_span_id)
+        emit_otlp_log(
+            "ERROR",
+            f"Erro JSONDecodeError na mensagem SQS {message['MessageId']}",
+            500,
+            "sqs/process_message",
+            trace_id,
+            consumer_span_id,
+        )
     except ClientError as e:
         log.error(f"Erro do Boto3 (DynamoDB ou SQS) ao processar {message['MessageId']}: {e}")
-        emit_otlp_log("ERROR", f"Erro Boto3 ao processar mensagem SQS: {e}", 500, "sqs/process_message", trace_id, consumer_span_id)
+        emit_otlp_log(
+            "ERROR",
+            f"Erro Boto3 ao processar mensagem SQS: {e}",
+            500,
+            "sqs/process_message",
+            trace_id,
+            consumer_span_id,
+        )
     except Exception as e:
         log.error(f"Erro inesperado ao processar {message['MessageId']}: {e}")
-        emit_otlp_log("ERROR", f"Erro inesperado no worker SQS: {e}", 500, "sqs/process_message", trace_id, consumer_span_id)
+        emit_otlp_log(
+            "ERROR",
+            f"Erro inesperado no worker SQS: {e}",
+            500,
+            "sqs/process_message",
+            trace_id,
+            consumer_span_id,
+        )
 
 def sqs_worker_loop():
     """ Loop principal do worker que ouve a fila SQS """

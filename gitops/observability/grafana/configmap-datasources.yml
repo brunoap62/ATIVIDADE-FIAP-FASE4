@@ -39,12 +39,12 @@ data:
             filterByTraceID: false
             filterBySpanID: false
             customQuery: true
-            query: '{service_name="${__span.tags["service.name"]}"} |= "${__trace.traceId}"'
+            query: '{service_name=~".+"} |= "$${__trace.traceId}"'
           tracesToMetrics:
             datasourceUid: prometheus
             spanStartTimeShift: '-5m'
             spanEndTimeShift: '5m'
-            tags: [{ key: 'service.name', value: 'service_name' }]
+            tags: [{ key: 'service.name', value: 'service' }]
           serviceMap:
             datasourceUid: prometheus
           nodeGraph:

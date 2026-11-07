@@ -45,6 +45,8 @@ func (a *App) getCombinedFlagInfo(reqCtx context.Context, flagName string) (*Com
 		trace.WithAttributes(
 			attribute.String("db.system", "redis"),
 			attribute.String("db.operation", "GET"),
+			attribute.String("db.redis.key", cacheKey),
+			attribute.String("feature_flag.key", flagName),
 			attribute.String("flag.name", flagName),
 		),
 	)
@@ -55,6 +57,7 @@ func (a *App) getCombinedFlagInfo(reqCtx context.Context, flagName string) (*Com
 		if err := json.Unmarshal([]byte(val), &info); err == nil {
 			redisSpan.SetAttributes(attribute.Bool("cache.hit", true))
 			redisSpan.End()
+			trace.SpanFromContext(reqCtx).SetAttributes(attribute.Bool("cache.hit", true))
 			log.Printf("Cache HIT para flag '%s'", flagName)
 			return &info, nil
 		}
@@ -63,6 +66,7 @@ func (a *App) getCombinedFlagInfo(reqCtx context.Context, flagName string) (*Com
 	}
 	redisSpan.SetAttributes(attribute.Bool("cache.hit", false))
 	redisSpan.End()
+	trace.SpanFromContext(reqCtx).SetAttributes(attribute.Bool("cache.hit", false))
 
 	log.Printf("Cache MISS para flag '%s'", flagName)
 	// 2. Cache MISS - Buscar dos serviços propagando o TraceContext!
@@ -118,17 +122,19 @@ func (a *App) fetchFromServices(reqCtx context.Context, flagName string) (*Combi
 
 // fetchFlag (função helper)
 func (a *App) fetchFlag(reqCtx context.Context, flagName string) (*Flag, error) {
+	url := fmt.Sprintf("%s/flags/%s", a.FlagServiceURL, flagName)
 	spanCtx, span := otel.Tracer("evaluation-service").Start(reqCtx, "GET flag-service /flags",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("http.method", "GET"),
+			attribute.String("http.url", url),
+			attribute.String("url.path", "/flags/"+flagName),
 			attribute.String("peer.service", "flag-service"),
+			attribute.String("feature_flag.key", flagName),
 			attribute.String("flag.name", flagName),
 		),
 	)
 	defer span.End()
-
-	url := fmt.Sprintf("%s/flags/%s", a.FlagServiceURL, flagName)
 
 	req, err := http.NewRequestWithContext(spanCtx, "GET", url, nil)
 	if err != nil {
@@ -165,17 +171,19 @@ func (a *App) fetchFlag(reqCtx context.Context, flagName string) (*Flag, error) 
 }
 
 func (a *App) fetchRule(reqCtx context.Context, flagName string) (*TargetingRule, error) {
+	url := fmt.Sprintf("%s/rules/%s", a.TargetingServiceURL, flagName)
 	spanCtx, span := otel.Tracer("evaluation-service").Start(reqCtx, "GET targeting-service /rules",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("http.method", "GET"),
+			attribute.String("http.url", url),
+			attribute.String("url.path", "/rules/"+flagName),
 			attribute.String("peer.service", "targeting-service"),
+			attribute.String("feature_flag.key", flagName),
 			attribute.String("flag.name", flagName),
 		),
 	)
 	defer span.End()
-
-	url := fmt.Sprintf("%s/rules/%s", a.TargetingServiceURL, flagName)
 	req, err := http.NewRequestWithContext(spanCtx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição para targeting-service: %w", err)

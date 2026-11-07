@@ -29,8 +29,12 @@ func (a *App) sendEvaluationEvent(traceCtx context.Context, userID, flagName str
 		trace.WithAttributes(
 			attribute.String("messaging.system", "aws_sqs"),
 			attribute.String("messaging.operation", "publish"),
+			attribute.String("messaging.destination.name", "evaluation-events-queue"),
 			attribute.String("peer.service", "analytics-service"),
+			attribute.String("feature_flag.key", flagName),
 			attribute.String("flag.name", flagName),
+			attribute.String("enduser.id", userID),
+			attribute.Bool("feature_flag.result.enabled", result),
 		),
 	)
 	defer span.End()

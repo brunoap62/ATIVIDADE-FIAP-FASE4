@@ -8,7 +8,25 @@ from flask import request, g, jsonify
 
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "analytics-service")
 POD_NAME = os.getenv("HOSTNAME", f"{SERVICE_NAME}-local")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-2")
 CHAOS_STATE = {"enabled": False}
+
+
+def _resource_attributes():
+    return [
+        {"key": "service.name", "value": {"stringValue": SERVICE_NAME}},
+        {"key": "service.namespace", "value": {"stringValue": "toggle-master"}},
+        {"key": "service.version", "value": {"stringValue": "1.0.0"}},
+        {"key": "deployment.environment", "value": {"stringValue": "production"}},
+        {"key": "k8s.cluster.name", "value": {"stringValue": "toggle-master-eks"}},
+        {"key": "k8s.namespace.name", "value": {"stringValue": "toggle-master"}},
+        {"key": "k8s.pod.name", "value": {"stringValue": POD_NAME}},
+        {"key": "cloud.provider", "value": {"stringValue": "aws"}},
+        {"key": "cloud.platform", "value": {"stringValue": "aws_eks"}},
+        {"key": "cloud.region", "value": {"stringValue": AWS_REGION}},
+        {"key": "telemetry.sdk.name", "value": {"stringValue": "opentelemetry"}},
+        {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+    ]
 
 
 def _otlp_base_url():
@@ -78,14 +96,8 @@ def emit_otlp_span(trace_id, span_id, parent_span_id, name, kind, start_ns, end_
     payload = {
         "resourceSpans": [
             {
-                "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": SERVICE_NAME}},
-                        {"key": "k8s.pod.name", "value": {"stringValue": POD_NAME}},
-                        {"key": "deployment.environment", "value": {"stringValue": "production"}},
-                    ]
-                },
-                "scopeSpans": [{"scope": {"name": SERVICE_NAME}, "spans": [span_obj]}],
+                "resource": {"attributes": _resource_attributes()},
+                "scopeSpans": [{"scope": {"name": SERVICE_NAME, "version": "1.0.0"}, "spans": [span_obj]}],
             }
         ]
     }
