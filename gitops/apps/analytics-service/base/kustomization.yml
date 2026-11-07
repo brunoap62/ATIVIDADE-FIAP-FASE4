@@ -13,4 +13,4 @@ resources:
 images:
 - name: fase2-analytics-service
   newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase3/analytics-service
-  newTag: eae9aff9ebb00d42b4a699466b47e2f067df9bf1
+  newTag: c3108df24db7ac88faeb8024676cbeec1590dd35
