@@ -296,7 +296,7 @@ data:
                 annotations = alert.get("annotations", {})
 
                 alertname = labels.get("alertname", "ToggleMasterAlert")
-                service_name = labels.get("service_name", "unknown-service")
+                service_name = labels.get("service_name") or labels.get("service") or "unknown-service"
                 severity = labels.get("severity", "critical")
                 self_healing_flag = labels.get("self_healing", "false") == "true"
                 runbook_id = labels.get("runbook_id", "RB-001")

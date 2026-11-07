@@ -85,19 +85,20 @@ data:
           - alert: ToggleMasterHighErrorRate5xx
             expr: |
               (
-                sum by (service_name) (rate(traces_spanmetrics_calls_total{http_status_code=~"5.."}[1m]))
+                sum by (service) (rate(traces_spanmetrics_calls_total{http_status_code=~"5.."}[1m]))
                 /
-                clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total[1m])), 0.0001)
+                clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total[1m])), 0.0001)
               ) * 100 > 5
             for: 30s
             labels:
               severity: critical
               namespace: toggle-master
+              service_name: "{{ $labels.service }}"
               self_healing: "true"
               runbook_id: "RB-001"
             annotations:
-              summary: "🚨 Alta Taxa de Erros HTTP 5xx em {{ $labels.service_name }}"
-              description: "O microsserviço {{ $labels.service_name }} apresenta {{ $value | printf \"%.2f\" }}% de erros HTTP 5xx (limite: 5%). Acionando incidente no PagerDuty/Discord e Runbook Automation RB-001 (kubectl rollout restart)."
+              summary: "🚨 Alta Taxa de Erros HTTP 5xx em {{ $labels.service }}"
+              description: "O microsserviço {{ $labels.service }} apresenta {{ $value | printf \"%.2f\" }}% de erros HTTP 5xx (limite: 5%). Acionando incidente no PagerDuty/Discord e Runbook Automation RB-001 (kubectl rollout restart)."
               runbook_url: "https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4/blob/main/RUNBOOKS.md#rb-001"
 
           # ====================================================================
@@ -105,13 +106,14 @@ data:
           # ====================================================================
           - alert: ToggleMasterHighLatencyP95
             expr: |
-              histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket[2m]))) > 1000
+              histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[2m]))) > 1000
             for: 1m
             labels:
               severity: warning
               namespace: toggle-master
+              service_name: "{{ $labels.service }}"
               runbook_id: "RB-002"
             annotations:
-              summary: "⚠️ Latência p95 elevada em {{ $labels.service_name }}"
-              description: "O percentil p95 de latência do serviço {{ $labels.service_name }} ultrapassou 1000ms (atual: {{ $value | printf \"%.0f\" }}ms)."
+              summary: "⚠️ Latência p95 elevada em {{ $labels.service }}"
+              description: "O percentil p95 de latência do serviço {{ $labels.service }} ultrapassou 1000ms (atual: {{ $value | printf \"%.0f\" }}ms)."
               runbook_url: "https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4/blob/main/RUNBOOKS.md#rb-002"

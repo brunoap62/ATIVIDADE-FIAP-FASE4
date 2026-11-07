@@ -366,8 +366,8 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "100 * (sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
-              "legendFormat": "{{service_name}} (5xx %)",
+              "expr": "100 * (sum by (service) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[1m])) / clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m])), 0.0001))",
+              "legendFormat": "{{service}} (5xx %)",
               "refId": "A"
             }
           ],
@@ -425,26 +425,26 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
-              "legendFormat": "p50 (Mediana) - {{service_name}}",
+              "expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
+              "legendFormat": "p50 (Mediana) - {{service}}",
               "refId": "A"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
-              "legendFormat": "p90 - {{service_name}}",
+              "expr": "histogram_quantile(0.90, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
+              "legendFormat": "p90 - {{service}}",
               "refId": "B"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
-              "legendFormat": "p95 (SLA) - {{service_name}}",
+              "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
+              "legendFormat": "p95 (SLA) - {{service}}",
               "refId": "C"
             },
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service_name))",
-              "legendFormat": "p99 (Tail Latency) - {{service_name}}",
+              "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\"}[1m])) by (le, service))",
+              "legendFormat": "p99 (Tail Latency) - {{service}}",
               "refId": "D"
             }
           ],
@@ -497,8 +497,8 @@ data:
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "prometheus" },
-              "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
-              "legendFormat": "{{service_name}}",
+              "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[1m]))",
+              "legendFormat": "{{service}}",
               "refId": "A"
             }
           ],
