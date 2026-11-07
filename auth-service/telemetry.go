@@ -295,10 +295,10 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 // chaosHandler permite ativar/desativar injeção de falha HTTP 500 para demonstrar o Alerta + Self-Healing no vídeo
 // Ao sofrer 'kubectl rollout restart' pelo Self-Healing, o novo pod sobe automaticamente com chaosEnabled = false!
 func (a *App) chaosHandler(w http.ResponseWriter, r *http.Request) {
-	incHealth := r.URL.Query().Get("include_health")
-	if incHealth == "true" || incHealth == "1" {
+	switch r.URL.Query().Get("include_health") {
+	case "true", "1":
 		chaosIncludeHealth.Store(true)
-	} else if incHealth == "false" || incHealth == "0" {
+	case "false", "0":
 		chaosIncludeHealth.Store(false)
 	}
 
