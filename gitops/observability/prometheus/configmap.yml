@@ -94,10 +94,11 @@ data:
               severity: critical
               namespace: toggle-master
               self_healing: "true"
+              runbook_id: "RB-001"
             annotations:
               summary: "🚨 Alta Taxa de Erros HTTP 5xx em {{ $labels.service_name }}"
-              description: "O microsserviço {{ $labels.service_name }} apresenta {{ $value | printf \"%.2f\" }}% de erros HTTP 5xx (limite: 5%). Acionando incidente no PagerDuty/ChatOps e Self-Healing automático (kubectl rollout restart)."
-              runbook_url: "https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4#self-healing"
+              description: "O microsserviço {{ $labels.service_name }} apresenta {{ $value | printf \"%.2f\" }}% de erros HTTP 5xx (limite: 5%). Acionando incidente no PagerDuty/Discord e Runbook Automation RB-001 (kubectl rollout restart)."
+              runbook_url: "https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4/blob/main/RUNBOOKS.md#rb-001"
 
           # ====================================================================
           # Alerta Inteligente 2: Latência p95 Elevada (> 1000ms)
@@ -109,6 +110,8 @@ data:
             labels:
               severity: warning
               namespace: toggle-master
+              runbook_id: "RB-002"
             annotations:
               summary: "⚠️ Latência p95 elevada em {{ $labels.service_name }}"
               description: "O percentil p95 de latência do serviço {{ $labels.service_name }} ultrapassou 1000ms (atual: {{ $value | printf \"%.0f\" }}ms)."
+              runbook_url: "https://github.com/brunoap62/ATIVIDADE-FIAP-FASE4/blob/main/RUNBOOKS.md#rb-002"

@@ -7,5 +7,6 @@ resources:
   - loki
   - tempo
   - alertmanager
+  - self-healing
   - prometheus
   - grafana

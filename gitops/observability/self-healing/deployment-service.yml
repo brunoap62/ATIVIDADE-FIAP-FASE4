@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-webhook
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: self-healing-webhook
+  template:
+    metadata:
+      labels:
+        app: self-healing-webhook
+    spec:
+      serviceAccountName: self-healing-sa
+      containers:
+        - name: self-healing-webhook
+          image: python:3.12-alpine
+          command: ["python3", "/app/server.py"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: TARGET_NAMESPACE
+              value: "toggle-master"
+            - name: SELF_HEALING_COOLDOWN_SECONDS
+              value: "60"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4318"
+          envFrom:
+            - secretRef:
+                name: observability-secrets
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: script-vol
+              mountPath: /app
+              readOnly: true
+            - name: secrets-vol
+              mountPath: /etc/self-healing/secrets
+              readOnly: true
+      volumes:
+        - name: script-vol
+          configMap:
+            name: self-healing-script
+        - name: secrets-vol
+          secret:
+            secretName: observability-secrets
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healing-webhook
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+spec:
+  type: ClusterIP
+  selector:
+    app: self-healing-webhook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

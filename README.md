@@ -1,303 +1,161 @@
-# 🚀 ToggleMaster — FIAP Postech (Tech Challenge Fase 3)
+# ToggleMaster — Tech Challenge Fase 4 (Observabilidade, APM e Self-Healing)
+
+Repositório da **Fase 4** do projeto **ToggleMaster** (Pós-Tech FIAP — DevOps & Arquitetura Cloud).  
+Nesta etapa, evoluímos a arquitetura em Kubernetes (EKS) e GitOps (ArgoCD) construída nas fases anteriores para resolver o problema de falhas silenciosas nos microsserviços, adicionando coleta padronizada com **OpenTelemetry**, métricas, logs centralizados, rastreamento distribuído (Tracing/Service Map), gestão de incidentes com **PagerDuty**, notificações no **Discord** e **Self-Healing automático** no cluster.
 
 ---
 
-## 📌 1. Visão Geral da Arquitetura
+## 1. Visão Geral da Arquitetura (Fase 4)
 
-O **ToggleMaster** é uma plataforma distribuída de gerenciamento e avaliação de Feature Flags em tempo real, composta por **5 microsserviços especializados**:
+A aplicação é composta por 5 microsserviços rodando no namespace `toggle-master` e uma stack completa de observabilidade e automação rodando no namespace `observability`:
+
+| Serviço | Linguagem | Dependências | Papel na Arquitetura |
+| :--- | :--- | :--- | :--- |
+| `auth-service` | Go | RDS PostgreSQL (`auth_db`) | Criação e validação de chaves de API (`GET /validate`). |
+| `flag-service` | Python (Flask) | RDS PostgreSQL (`flag_db`) + `auth-service` | Cadastro e consulta de Feature Flags. |
+| `targeting-service` | Python (Flask) | RDS PostgreSQL (`targeting_db`) + `auth-service` | Regras de segmentação por usuário/atributos. |
+| `evaluation-service` | Go | Redis + SQS + `flag-service` + `targeting-service` | Avalia as flags usando cache em memória e publica eventos de uso no SQS. |
+| `analytics-service` | Python | AWS SQS + DynamoDB | Consome eventos da fila SQS e grava o histórico no DynamoDB. |
+
+### Fluxo de Telemetria e Resposta a Incidentes
 
 ```mermaid
 flowchart TD
-    subgraph AWS_Cloud ["AWS Cloud (us-east-2)"]
-        subgraph VPC ["VPC Isolada"]
-            subgraph EKS_Cluster ["Amazon EKS Cluster 1.31"]
-                IngressNginx["Ingress NGINX Controller (AWS NLB)"]
-                ArgoCD["ArgoCD (GitOps Engine)"]
-                ESO["External Secrets Operator (ESO)"]
-                K8sSecrets["Secrets Nativas do K8s\n(*-service-secret)"]
-
-                AuthSvc["auth-service (Go)"]
-                FlagSvc["flag-service (Python)"]
-                TargetingSvc["targeting-service (Python)"]
-                EvalSvc["evaluation-service (Go)"]
-                AnalyticsSvc["analytics-service (Python)"]
-            end
-
-            subgraph Private_Data ["Camada de Dados & Cache"]
-                AuthRDS[("RDS: auth_db\n(PostgreSQL)")]
-                FlagRDS[("RDS: flag_db\n(PostgreSQL)")]
-                TargetingRDS[("RDS: targeting_db\n(PostgreSQL)")]
-                RedisCluster[("ElastiCache Redis 7.0")]
-                DynamoDBTable[("DynamoDB Table\n(Serverless)")]
-            end
-        end
-
-        SQSQueue[("AWS SQS Queue\n(evaluation-queue)")]
-        SSM[("AWS SSM Parameter Store\n(SecureString)")]
-        ECR["AWS ECR Repositories"]
+    subgraph ToggleMaster ["Namespace: toggle-master (Aplicação)"]
+        Eval["evaluation-service (Go)"]
+        Flag["flag-service (Python)"]
+        Targ["targeting-service (Python)"]
+        Auth["auth-service (Go)"]
+        Analyt["analytics-service (Python)"]
     end
 
-    IngressNginx --> AuthSvc
-    IngressNginx --> FlagSvc
-    IngressNginx --> TargetingSvc
-    IngressNginx --> EvalSvc
-    IngressNginx --> AnalyticsSvc
+    subgraph Observability ["Namespace: observability"]
+        OTel["OTel Collector\n(OTLP HTTP/gRPC + spanmetrics + servicegraph)"]
+        Prom["Prometheus\n(Métricas + Regras de Alerta)"]
+        Loki["Loki\n(Logs centralizados)"]
+        Tempo["Grafana Tempo\n(Traces + Service Map)"]
+        Grafana["Grafana\n(Dashboard Golden Signals)"]
+        AM["Alertmanager\n(Agrupamento e Anti-Alert Fatigue)"]
+        SH["self-healing-webhook\n(Automação de Rollout Restart)"]
+    end
 
-    AuthSvc --> AuthRDS
-    FlagSvc --> FlagRDS
-    TargetingSvc --> TargetingRDS
-    EvalSvc --> RedisCluster
-    EvalSvc --> SQSQueue
-    AnalyticsSvc --> SQSQueue
-    AnalyticsSvc --> DynamoDBTable
+    subgraph Externo ["Incidentes e ChatOps"]
+        PD["PagerDuty (Events API v2)"]
+        Discord["Discord (Webhook)"]
+    end
 
-    ESO -.->|1. Consulta via IRSA| SSM
-    ESO -->|2. Cria/Sincroniza| K8sSecrets
-    K8sSecrets -->|3. Injeta envFrom| AuthSvc
-    K8sSecrets -->|3. Injeta envFrom| FlagSvc
-    K8sSecrets -->|3. Injeta envFrom| TargetingSvc
-    K8sSecrets -->|3. Injeta envFrom| EvalSvc
-    K8sSecrets -->|3. Injeta envFrom| AnalyticsSvc
+    Eval -->|"HTTP (traceparent)"| Flag
+    Eval -->|"HTTP (traceparent)"| Targ
+    Flag -->|"HTTP (traceparent)"| Auth
+    Targ -->|"HTTP (traceparent)"| Auth
+    Eval -.->|"SQS MessageAttributes (traceparent)"| Analyt
 
-    ArgoCD -.->|Aplica Manifestos Kustomize| EKS_Cluster
+    Eval & Flag & Targ & Auth & Analyt ==>|"OTLP HTTP (:4318)"| OTel
+
+    OTel --> Prom
+    OTel --> Loki
+    OTel --> Tempo
+
+    Prom & Loki & Tempo --> Grafana
+    Prom -->|"Erro 5xx > 5% (30s)"| AM
+    AM -->|"Abre/Resolve Incidente"| PD
+    AM -->|"POST /webhook"| SH
+    SH -->|"Notifica status"| Discord
+    SH ==>|"PATCH Deployment (rollout restart)"| ToggleMaster
 ```
 
 ---
 
-## 🧩 2. Os 5 Microsserviços do Projeto
+## 2. O que foi implementado nesta fase
 
-| Microsserviço            | Linguagem      | Banco / Integração              | Responsabilidade                                                                     |
-| :----------------------- | :------------- | :------------------------------ | :----------------------------------------------------------------------------------- |
-| **`auth-service`**       | Go (Gin)       | RDS PostgreSQL (`auth_db`)      | Gerenciamento de chaves de API (`api_keys`) e validação de tokens.                   |
-| **`flag-service`**       | Python (Flask) | RDS PostgreSQL (`flag_db`)      | CRUD de Feature Flags e status de ativação/desativação.                              |
-| **`targeting-service`**  | Python (Flask) | RDS PostgreSQL (`targeting_db`) | Regras de segmentação de público e targeting por atributos.                          |
-| **`evaluation-service`** | Go             | Redis + SQS + Flag/Targeting    | Motor de avaliação de regras de alta performance com cache L1 e eventos assíncronos. |
-| **`analytics-service`**  | Python         | AWS SQS + DynamoDB              | Consumidor assíncrono que persiste métricas e eventos de avaliação no NoSQL.         |
+### 2.1. OpenTelemetry Collector como peça central (`gitops/observability/otel-collector/`)
+Em vez de cada microsserviço conhecer o endereço do Prometheus, do Loki ou da ferramenta de APM, todos os 5 serviços enviam seus dados apenas para o `otel-collector` via protocolo **OTLP HTTP** (` porta 4318`).
+- **Receivers:** `otlp` (portas `4317` gRPC e `4318` HTTP).
+- **Processors e Connectors:**
+  - `memory_limiter`, `batch` e `resource`.
+  - `spanmetrics`: gera automaticamente métricas de requisição, taxa de erros HTTP (`4xx`/`5xx`) e histogramas de latência (`p50`, `p90`, `p95`, `p99`) a partir dos spans recebidos.
+  - `servicegraph`: monta as métricas de origem/destino entre os serviços e bancos para desenhar o **Service Map**.
+- **Exporters:** roteia métricas para o **Prometheus** (`:8889`), logs em formato OTLP para o **Loki** (`http://loki:3100/otlp`) e traces para o **Grafana Tempo** (`tempo:4317`).
+
+### 2.2. Instrumentação dos 5 Microsserviços e Propagação de Contexto
+O código-fonte dos 5 microsserviços foi instrumentado para propagar o cabeçalho padrão W3C (`traceparent`) de ponta a ponta:
+1. Uma chamada em `GET /evaluate` no `evaluation-service` cria o span raiz, registra a consulta ao **Redis** (`Redis Get Cache` / `Redis Set Cache`) e, em caso de *cache miss*, repassa o `traceparent` nas chamadas HTTP para `flag-service` e `targeting-service`.
+2. O `flag-service` e o `targeting-service` extraem o `traceparent`, consultam seus respectivos bancos PostgreSQL e repassam o mesmo contexto ao validar o token no `auth-service` (`GET /validate`).
+3. Na publicação do evento para a fila **AWS SQS**, o `evaluation-service` injeta o `traceparent` nos `MessageAttributes` da mensagem.
+4. O `analytics-service` lê o `traceparent` da mensagem recebida do SQS, continua o mesmo trace e registra o span de escrita no **DynamoDB** (`DynamoDB PutItem`).
+5. Todos os logs emitidos pelos serviços incluem `trace_id` e `span_id` no JSON, permitindo ir direto do erro no gráfico para o log no Loki e para o trace correspondente.
+
+### 2.3. Monitoramento no K8s e Dashboard no Grafana (`gitops/observability/grafana/`)
+O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertmanager`) e o dashboard customizado provisionados via ConfigMap:
+- **Variável `$service`:** permite filtrar todos os painéis por microsserviço ou visualizar o cluster inteiro.
+- **4 Golden Signals + HPA:**
+  - *Traffic:* taxa de requisições por segundo (RPS) por serviço.
+  - *Errors:* percentual de respostas HTTP `5xx` com linha de limite do alerta (5%) ao lado do painel de logs de erro do Loki.
+  - *Latency:* curvas de percentil `p50`, `p90`, `p95` e `p99` ao lado do **Service Map** (Node Graph) e da tabela de traces.
+  - *Saturation:* consumo de CPU e memória dos pods no EKS, réplicas atuais vs. máximas do **HPA** e contagem de restarts dos containers.
+
+### 2.4. Alertas Inteligentes, PagerDuty, Discord e Self-Healing (`gitops/observability/self-healing/`)
+- **Regras de Alerta (`prometheus/configmap.yml`):**
+  - `ToggleMasterHighErrorRate5xx`: dispara quando a taxa de erros HTTP `5xx` de qualquer serviço passa de **5% por 30 segundos** (`severity: critical`, `self_healing: "true"`, `runbook_id: "RB-001"`).
+  - `ToggleMasterHighLatencyP95`: dispara warning caso o percentil `p95` passe de `1000ms` por 1 minuto.
+- **Prevenção de Alert Fatigue (`alertmanager/configmap.yml`):**
+  - Agrupamento por `['alertname', 'service_name', 'namespace']` (`group_wait: 15s`, `group_interval: 1m`, `repeat_interval: 1h`) para não abrir múltiplos incidentes repetidos.
+  - Regra de inibição (`inhibit_rules`) que silencia alertas `warning` se o mesmo serviço já estiver com alerta `critical` ativo.
+- **Integração PagerDuty + Discord + Self-Healing:**
+  - Quando o alerta entra em `Firing`, o Alertmanager aciona o **PagerDuty** (via `Events API v2`) abrindo o incidente automaticamente, e chama o serviço interno `self-healing-webhook` (`POST /webhook`).
+  - O `self-healing-webhook` é um controlador Python rodando no namespace `observability` com uma `ServiceAccount` (`self-healing-sa`) e permissão RBAC restrita (`get`, `list`, `patch` em `deployments` do namespace `toggle-master`).
+  - Ao receber o alerta, ele valida um *cooldown* de 60 segundos, aplica o `rollout restart` no deployment com falha via API do Kubernetes (`PATCH` na annotation `kubectl.kubernetes.io/restartedAt`) e envia notificações detalhadas no **Discord** (aviso de incidente, confirmação do restart executado e aviso de resolução quando a taxa de erro volta a 0%).
 
 ---
 
-## 🔐 3. Gestão Segura de Segredos (AWS SSM + ESO + IRSA)
+## 3. Justificativa Técnica das Escolhas
 
-Adotamos a política de **Segurança por Design e Automação Total**. Nenhuma credencial trafega em texto plano no Git e nenhuma senha é criada manualmente no console da AWS.
+1. **Arquitetura com OTel Collector:** centraliza o recebimento de telemetria dentro do cluster via protocolo neutro (OTLP). Isso evita acoplamento do código em Go e Python com SDKs proprietários e permite gerar métricas (`spanmetrics`) e mapa de dependências (`servicegraph`) de forma uniforme para qualquer linguagem.
+2. **APM e Rastreamento (Grafana Tempo / LGTM + compatibilidade OTLP com New Relic/Datadog):** com o OTel Collector processando os traces via OTLP, mantemos o **Grafana Tempo** integrado nativamente na mesma interface do Grafana (correlacionando métricas do Prometheus, logs do Loki e Service Map na mesma tela sem custo por host), podendo exportar simultaneamente para o endpoint OTLP do New Relic ou Datadog apenas adicionando o exporter no ConfigMap do coletor. Entre Datadog e New Relic, o New Relic oferece ingestão OTLP nativa mais simples sem exigir agentes proprietários pesados nos nós `t3.medium`.
+3. **PagerDuty vs. OpsGenie:** optamos pelo **PagerDuty** pela integração direta com a `Events API v2` no Alertmanager (`pagerduty_configs`), suporte nativo a deduplicação por `dedup_key` e fechamento automático do incidente (`send_resolved: true`) assim que o Self-Healing recupera o pod, além do fato de o OpsGenie estar em processo de descontinuação pela Atlassian.
 
-### 🔄 Diagrama de Sequência do Fluxo de Segredos:
+---
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Dev as Dev / CI
-    participant TF as Terraform (IaC)
-    participant RDS as AWS RDS PostgreSQL
-    participant SSM as AWS SSM Parameter Store
-    participant ESO as External Secrets Operator
-    participant K8s as Kubernetes Secret
-    participant App as Pod (Microsserviço)
+## 4. Segurança de Segredos e Decisões de Infraestrutura (Terraform)
 
-    %% Fase 1: Provisionamento
-    Dev->>TF: Executa terraform apply
-    TF->>RDS: Provisiona instancia PostgreSQL (db.t3.micro)
-    RDS-->>TF: Retorna Endpoint real da instancia
-    TF->>SSM: Cria parametro SecureString (/auth-service/database_url)
-    Note over TF,SSM: Connection string gerada automaticamente sem expor senhas no Git
+- **Zero segredos hardcoded no repositório:** senhas do RDS, chave interna de API do `evaluation-service`, `pagerduty_routing_key` e `discord_webhook_url` são gerenciados como `SecureString` no **AWS SSM Parameter Store** (`terraform/modules/ssm-parameters/`) e injetados no EKS através do **External Secrets Operator (ESO)**.
+- **Criptografia e FinOps no RDS (`terraform/modules/rds/`):** todas as instâncias PostgreSQL utilizam discos `gp3` com criptografia em repouso habilitada (`storage_encrypted = true`). Para manter o custo do laboratório acadêmico controlado e permitir destruição rápida do ambiente sem cobrança residual de snapshots, utilizamos Single-AZ (`multi_az = false`), `backup_retention_period = 0` e `skip_final_snapshot = true`.
+- **Pipelines CI/CD e IaC (`.github/workflows/`):** workflows para os 5 microsserviços e para o Terraform (`ci-terraform.yml`) com testes unitários, linters (`golangci-lint`, `flake8`, `terraform fmt/validate`) e scans bloqueantes (`exit-code: "1"`) no Trivy e Horusec.
 
-    %% Fase 2: Sincronização
-    Note over ESO: ESO le o ClusterSecretStore e o ExternalSecret
-    ESO->>SSM: Consulta parametro via IRSA (Token OIDC temporario)
-    SSM-->>ESO: Retorna connection string descriptografada
-    ESO->>K8s: Cria ou atualiza o recurso Secret (auth-service-secret)
-    Note over ESO,K8s: Secret nativa criada automaticamente no namespace toggle-master
+---
 
-    %% Fase 3: Consumo
-    App->>K8s: Carrega variaveis de ambiente (envFrom secretRef)
-    K8s-->>App: Injeta DATABASE_URL no container
-    App->>RDS: Conecta ao banco e executa auto-migration
+## 5. Como Configurar e Testar na Prática
+
+### 5.1. Configurar chaves do PagerDuty e Discord no `terraform.tfvars`
+No seu arquivo local `terraform/terraform.tfvars` (ignorado pelo Git), adicione as duas variáveis abaixo antes de rodar o `terraform apply`:
+
+```hcl
+pagerduty_routing_key = "SUA_INTEGRATION_KEY_DO_PAGERDUTY"
+discord_webhook_url   = "SUA_URL_DO_WEBHOOK_DO_DISCORD"
 ```
 
-### 🧱 Os Componentes Envolvidos:
-
-1. **AWS SSM Parameter Store:** Armazena parâmetros confidenciais criptografados (`SecureString`).
-2. **IRSA (IAM Roles for Service Accounts):** Concede permissões granulares aos Pods do Kubernetes via tokens JWT OIDC temporários, eliminando chaves estáticas (`AWS_ACCESS_KEY_ID`).
-3. **`ClusterSecretStore` ([`cluster-secret-store.yml`](gitops/infrastructure/base/cluster-secret-store.yml)):** Configura o conector global do Kubernetes com o Parameter Store da AWS.
-4. **`ExternalSecret` ([`externalsecret.yml`](gitops/apps/auth-service/base/externalsecret.yml)):** Mapeia os parâmetros da AWS para Secrets nativas do Kubernetes.
-5. **`Secret` Nativa:** Injetada nos Pods via `envFrom: secretRef` de forma totalmente transparente.
-
----
-
-## 🏗️ 4. Infraestrutura como Código (Terraform Modular)
-
-Toda a infraestrutura é provisionada de forma 100% declarativa, reproduzível e modular:
-
-```text
-terraform/
-├── main.tf                     # Camada de composição limpa dos módulos
-├── variables.tf / outputs.tf   # Declaração de entradas e saídas
-├── backend.tf                  # Estado remoto no AWS S3 com Lock no DynamoDB
-└── modules/
-    ├── network-vpc/            # VPC, Subnets Públicas/Privadas, NAT Gateway e IGW
-    ├── eks/                    # Cluster Amazon EKS 1.31 com Managed Node Groups
-    ├── rds/                    # 3x Instâncias dedicadas RDS PostgreSQL
-    ├── redis/                  # Cluster AWS ElastiCache Redis 7.0
-    ├── dynamodb/               # Tabela NoSQL Serverless (PAY_PER_REQUEST)
-    ├── sqs/                    # Fila AWS SQS para eventos
-    ├── ssm-parameters/         # Parâmetros e connection strings criptografadas
-    ├── iam-irsa/               # IAM Roles com OIDC para pods e operadores
-    ├── ingress-nginx/          # Ingress Controller integrado a AWS NLB
-    ├── external-secrets/       # Helm Release do ESO
-    └── argocd/                 # Helm Release do ArgoCD
-```
-
----
-
-## 💰 5. Estimativa Oficial de Custos na AWS (FinOps)
-
-O dimensionamento da infraestrutura foi planejado seguindo os pilares de **Excelência Operacional e Otimização de Custos (FinOps)** do *AWS Well-Architected Framework*.
-
-A estimativa oficial foi modelada através da [AWS Pricing Calculator](https://calculator.aws/) sob o ID de workload **`d56598ab-c232-4a75-b5b6-892ae7bdebe6`**, totalizando **US$ 247,11 / mês**:
-
-![Estimativa Oficial de Custos AWS](Calculadora%20de%20custos.png)
-
-### 📊 Resumo de Custos Mensais por Recurso:
-
-| Serviço AWS | Componente & Dimensionamento no Terraform | Custo Mensal (USD) |
-| :--- | :--- | :--- |
-| **Amazon EKS** | 1x Cluster Control Plane 1.31 (Standard Support - 730h) | **$73.00** |
-| **Amazon EC2 (EKS Nodes)** | 2x Instâncias `t3.medium` On-Demand (1.460h) | **$60.74** |
-| **Amazon RDS (PostgreSQL)** | 3x Instâncias `db.t3.micro` Single-AZ (`auth_db`, `flag_db`, `targeting_db` - 2.190h) | **$39.42** |
-| **AWS VPC (NAT Gateway)** | 1x NAT Gateway nas subnets públicas (730h) | **$32.85** |
-| **Elastic Load Balancing (NLB)** | 1x Network Load Balancer (Ingress NGINX - 730h) + LCUs | **$16.49** |
-| **Amazon ElastiCache (Redis)** | 1x Nó `cache.t3.micro` On-Demand (Redis 7.0 - 730h) | **$12.41** |
-| **Amazon RDS (Storage gp3)** | 60 GB GP3 Storage (20 GB por banco RDS) | **$6.90** |
-| **Amazon EC2 (Storage gp3)** | 40 GB GP3 EBS Storage (20 GB por nó EKS) | **$3.20** |
-| **Amazon ECR** | 10 GB de armazenamento de imagens Docker (5 repositórios) | **$1.00** |
-| **Amazon DynamoDB** | Modo On-Demand (`PAY_PER_REQUEST` - 1M writes + 500k reads + 5 GB) | **$0.69** |
-| **Amazon SQS** | 1x Fila Standard `evaluation-queue` (1.000.000 requisições/mês) | **$0.40** |
-| **AWS SSM Parameter Store** | Parâmetros `SecureString` no Standard Tier | **$0.00 (Gratuito)** |
-| **IAM IRSA / OIDC** | Autenticação temporária sem chaves estáticas | **$0.00 (Gratuito)** |
-| **TOTAL MENSAL ESTIMADO** | **Ambiente de Produção Completo em Operação 24/7** | **US$ 247.11 / mês** |
-
-> 💡 **Destaques de FinOps e Decisões Conscientes de Arquitetura:**
-> - **Criptografia em Repouso no RDS (`storage_encrypted = true`):** Todas as 3 instâncias PostgreSQL utilizam volumes `gp3` criptografados via AWS KMS sem custo adicional.
-> - **Política de Backups e Retenção no RDS (`backup_retention_period = 0` e `skip_final_snapshot = true`):** Decisão consciente de FinOps e agilidade operacional para laboratório acadêmico efêmero — evita cobranças residuais de snapshots após o `terraform destroy` e acelera o descomissionamento da infraestrutura, dado que os schemas e dados iniciais são 100% reproduzíveis via *auto-migration* no startup dos serviços. *(Em um cenário produtivo crítico, aplica-se `backup_retention_period = 7` a `35` dias e `multi_az = true`)*.
-> - **DynamoDB Serverless (`PAY_PER_REQUEST`):** Custo praticamente nulo quando ocioso ($0,69/mês), sem pagar por capacidade provisionada desnecessária.
-> - **SSM Parameter Store Standard Tier:** Gestão de segredos e credenciais criptografadas sem custos fixos mensais por segredo.
-> - **ArgoCD via `ClusterIP`:** Economia de ~$20/mês eliminando a necessidade de um segundo Load Balancer dedicado.
-> - **Storage Moderno GP3:** Garante 3.000 IOPS e 125 MB/s nativos por disco com custo 20% menor que o antigo GP2.
-
----
-
-## 🐙 6. GitOps com Kustomize & ArgoCD
-
-A entrega contínua segue os princípios de **GitOps**, onde o estado do cluster é uma representação fiel do repositório Git.
-
-### 📂 Estrutura Semântica do GitOps (`gitops/`):
-
-```text
-gitops/
-├── bootstrap/
-│   └── argocd/
-│       └── app-prod.yml        # 🚀 Root Application declarativa do ArgoCD
-├── infrastructure/             # 🌐 Manifestos globais (Namespace, Ingress, ClusterSecretStore)
-│   ├── base/
-│   └── overlays/prod/
-├── apps/                       # 📦 Manifestos individuais de cada microsserviço
-│   ├── auth-service/           # (Deployment, Service, ExternalSecret, ConfigMap)
-│   ├── flag-service/
-│   ├── targeting-service/
-│   ├── evaluation-service/
-│   └── analytics-service/
-└── overlays/
-    └── prod/                   # 🎯 Kustomization raiz de produção
-        └── kustomization.yml
-```
-
-- **ArgoCD:** Configurado como serviço `ClusterIP` com reconciliação acelerada a cada **30 segundos** (`timeout.reconciliation: "30s"`).
-- **Ingress NGINX:** Roteia tráfego externo para os serviços através de um Network Load Balancer (NLB) com `rewrite-target`.
-
----
-
-## 🛡️ 7. Pipeline Multi-Stage DevSecOps (GitHub Actions)
-
-Cada microsserviço possui uma pipeline automatizada (`.github/workflows/ci-*.yml`) estruturada em **6 estágios com Quality Gates rigorosos**:
-
-```text
-[Stage 1: Testes & Linters] ──┐
-[Stage 1: SAST (Horusec)]    ──┼─► [Stage 2: Docker Build & Trivy Image Scan] ─► [Stage 3: Push ECR] ─► [Stage 4: GitOps Sync] ─► [Stage 5: ArgoCD Rollout]
-[Stage 1: SCA (Trivy FS)]    ──┘
-```
-
-1. **Stage 1 (Paralelo):**
-   - **Testes Unitários:** `go test` / `pytest` com mocks robustos de banco e AWS.
-   - **Linters:** `golangci-lint` / `flake8`.
-   - **SAST (Static Application Security Testing):** `Horusec CLI` analisando código estático e bloqueando vulnerabilidades.
-   - **SCA (Software Composition Analysis):** `Trivy FS` analisando dependências (`go.mod`, `requirements.txt`) e falhando em severidades `CRITICAL`.
-2. **Stage 2 (Fan-In):**
-   - Construção da imagem Docker local e varredura com `Trivy Image Scan` contra vulnerabilidades de imagem base.
-3. **Stage 3:** Push autenticado da imagem no **AWS ECR** com a tag do commit.
-4. **Stage 4:** Atualização automática da imagem no manifesto `kustomization.yml` do GitOps com rebase resiliente.
-5. **Stage 5:** O ArgoCD detecta a atualização e executa o rollout sincronizado no EKS.
-6. **Stage 6:** Publicação do resumo consolidado do Quality Gate no GitHub Step Summary.
-
-> 💡 **Pipeline Orquestradora:** O workflow [`.github/workflows/deploy-all.yml`](.github/workflows/deploy-all.yml) permite disparar o build e deploy dos 5 microsserviços simultaneamente com apenas 1 clique via `workflow_dispatch`.
-
----
-
-## 🔑 8. Configuração de Secrets no GitHub Actions (Automação Total)
-
-Para que todo o ecossistema de CI/CD e GitOps funcione de forma **100% automática e autônoma**, é necessário apenas cadastrar **4 Repository Secrets** no repositório do GitHub (`Settings > Secrets and variables > Actions`):
-
-| Secret Name | Exemplo de Valor | Descrição |
-| :--- | :--- | :--- |
-| **`AWS_ACCESS_KEY_ID`** | `AKIAIOSFODNN7EXAMPLE` | Chave de acesso AWS com permissões para CI/CD (ECR, EKS, Terraform). |
-| **`AWS_SECRET_ACCESS_KEY`** | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | Chave secreta da AWS correspondente. |
-| **`AWS_REGION`** | `us-east-2` | Região da AWS onde toda a infraestrutura está provisionada. |
-| **`PROJECT_NAME`** | `toggle-master-fase3` | Nome base do projeto usado dinamicamente para ECR, IAM e tags. |
-
-> 🌟 **Como a mágica acontece:**
-> Com apenas essas 4 variáveis cadastradas:
-> 1. **Pipelines de CI/CD** rodam os testes, linters, SAST (Horusec), SCA e varredura de contêineres (Trivy).
-> 2. As imagens Docker são construídas e enviadas automaticamente para os repositórios **AWS ECR** corretos (`${PROJECT_NAME}/${SERVICE_DIR}`).
-> 3. Os manifestos do **GitOps** (`kustomization.yml`) são atualizados com a nova tag de imagem e commitados via workflow.
-> 4. O **ArgoCD** detecta a alteração e executa o rollout sincronizado nos pods do **Amazon EKS**.
-> 5. As credenciais e connection strings de banco de dados (RDS, Redis, SQS) são resolvidas dinamicamente via **AWS SSM Parameter Store** e **External Secrets Operator** sem qualquer intervenção manual.
-
----
-
-## ⚡ 9. Guia Rápido de Execução e Comandos Úteis
-
-### 🔹 1. Acesso ao Painel do ArgoCD:
-
+### 5.2. Acessar o Grafana e o ArgoCD
 ```bash
-# Iniciar o port-forward para o painel do ArgoCD:
-kubectl kubectl port-forward --address 127.0.0.1 svc/argocd-server -n argocd 8080:443
+# Port-forward do Grafana (usuário: admin / senha: togglemaster-admin)
+kubectl port-forward -n observability svc/grafana 3000:3000
+# Acesse: http://localhost:3000
 
-# Obter a senha inicial do usuário 'admin':
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
-# Acesse em: https://localhost:8080
+# Port-forward do ArgoCD
+kubectl port-forward -n argocd svc/argocd-server 8080:443
+# Acesse: https://localhost:8080
 ```
 
-### 🔹 2. Validar Status do Kubernetes & Secrets:
+### 5.3. Simular Falha e Validar o Self-Healing ("A Prova Real")
+Cada microsserviço possui um endpoint `/chaos?enable=true` que força retorno `HTTP 500` nas rotas de negócio mantendo a rota `/health` em `200 OK` (simulando uma falha silenciosa de negócio para que a `livenessProbe` do Kubernetes não mate o pod antes do alerta de observabilidade agir).
 
+Para executar o teste completo automatizado:
 ```bash
-# Verificar se todos os 5 pods estão 1/1 Running:
-kubectl get pods -n toggle-master
+# Em um terminal secundário, acompanhe os pods:
+kubectl get pods -n toggle-master -w
 
-# Verificar se os ExternalSecrets sincronizaram com o AWS SSM:
-kubectl get externalsecrets -n toggle-master
+# No terminal principal, dispare a simulação (ex: no auth-service):
+./scripts/test-chaos-self-healing.sh auth-service
 
-# Verificar as Secrets nativas criadas:
-kubectl get secrets -n toggle-master
-```
-
-### 🔹 3. Testar Endpoints via Ingress NLB:
-
-```bash
-# Obter o Hostname do Ingress NLB:
-export INGRESS_HOST=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-
-# Testar a saúde de cada microsserviço:
-curl -i http://$INGRESS_HOST/auth/health
-curl -i http://$INGRESS_HOST/flags/health
-curl -i http://$INGRESS_HOST/targeting/health
-curl -i http://$INGRESS_HOST/evaluate-api/health
-curl -i http://$INGRESS_HOST/analytics-api/health
+# Para ver o log detalhado do controlador de Self-Healing:
+kubectl logs -n observability deploy/self-healing-webhook -f
 ```

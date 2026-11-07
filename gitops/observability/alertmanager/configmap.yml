@@ -24,8 +24,8 @@ data:
       repeat_interval: 1h
       receiver: 'self-healing-and-ops'
 
-    # Regras de Inibição (Inhibition): se um serviço estiver totalmente Down (critical),
-    # silencia alertas de warning secundários do mesmo serviço.
+    # Regras de Inibição (Inhibition): se um serviço estiver em estado crítico (5xx > 5%),
+    # silencia alertas de warning secundários (ex: latência p95 alta) do mesmo serviço.
     inhibit_rules:
       - source_matchers:
           - severity="critical"
@@ -35,8 +35,18 @@ data:
 
     receivers:
       - name: 'self-healing-and-ops'
+        # 1. Gerenciamento de Incidentes: PagerDuty Events API v2 (com Auto-Resolve)
+        pagerduty_configs:
+          - routing_key_file: '/etc/alertmanager/secrets/PAGERDUTY_ROUTING_KEY'
+            send_resolved: true
+            severity: '{{ if eq .CommonLabels.severity "critical" }}critical{{ else }}warning{{ end }}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              service_name: '{{ .CommonLabels.service_name }}'
+              namespace: '{{ .CommonLabels.namespace }}'
+              runbook_id: '{{ .CommonLabels.runbook_id }}'
+              description: '{{ .CommonAnnotations.description }}'
+        # 2. Automação de Self-Healing (Runbook RB-001) + ChatOps no Discord
         webhook_configs:
-          # Aciona automaticamente o controlador de Self-Healing (Etapa 6)
-          # que também encaminha para ChatOps (Discord/Slack) e PagerDuty/OpsGenie!
           - url: 'http://self-healing-webhook.observability.svc.cluster.local:8080/webhook'
             send_resolved: true

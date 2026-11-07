@@ -23,9 +23,10 @@ import (
 )
 
 var (
-	tracer       trace.Tracer
-	otlpHTTPBase string
-	chaosEnabled atomic.Bool
+	tracer             trace.Tracer
+	otlpHTTPBase       string
+	chaosEnabled       atomic.Bool
+	chaosIncludeHealth atomic.Bool
 )
 
 // otlpHTTPJSONExporter implementa sdktrace.SpanExporter enviando OTLP/HTTP JSON direto via net/http
@@ -265,8 +266,9 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
 		// Se o modo de falha controlada (Chaos / Simulação de Incidente Fase 4) estiver ativo,
-		// retorna HTTP 500 para disparar o Alerta 5xx > 5% e acionar o Self-Healing automático!
-		if chaosEnabled.Load() && route != "/chaos" {
+		// retorna HTTP 500 nas rotas de negócio (preservando /health em 200 OK por padrão para não acionar
+		// a livenessProbe do K8s antes do Alerta do Prometheus + Self-Healing agir).
+		if chaosEnabled.Load() && route != "/chaos" && (route != "/health" || chaosIncludeHealth.Load()) {
 			rec.WriteHeader(http.StatusInternalServerError)
 			_, _ = rec.Write([]byte(`{"error":"[CHAOS_FAULT_INJECTION] Falha crítica simulada no auth-service (Database Connection Pool Exhausted)"}`))
 			span.SetAttributes(attribute.Int("http.status_code", http.StatusInternalServerError))
@@ -293,19 +295,28 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 // chaosHandler permite ativar/desativar injeção de falha HTTP 500 para demonstrar o Alerta + Self-Healing no vídeo
 // Ao sofrer 'kubectl rollout restart' pelo Self-Healing, o novo pod sobe automaticamente com chaosEnabled = false!
 func (a *App) chaosHandler(w http.ResponseWriter, r *http.Request) {
+	incHealth := r.URL.Query().Get("include_health")
+	if incHealth == "true" || incHealth == "1" {
+		chaosIncludeHealth.Store(true)
+	} else if incHealth == "false" || incHealth == "0" {
+		chaosIncludeHealth.Store(false)
+	}
+
 	switch r.URL.Query().Get("enable") {
 	case "true", "1":
 		chaosEnabled.Store(true)
 		emitOTLPLog(r.Context(), "ERROR", "[CHAOS_MODE_ENABLED] Injeção de falhas HTTP 500 ativada no auth-service!", http.StatusOK, "/chaos")
 	case "false", "0":
 		chaosEnabled.Store(false)
+		chaosIncludeHealth.Store(false)
 		emitOTLPLog(r.Context(), "INFO", "[CHAOS_MODE_DISABLED] Injeção de falhas desativada no auth-service.", http.StatusOK, "/chaos")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"service":       "auth-service",
-		"chaos_enabled": chaosEnabled.Load(),
+		"service":        "auth-service",
+		"chaos_enabled":  chaosEnabled.Load(),
+		"include_health": chaosIncludeHealth.Load(),
 	})
 }

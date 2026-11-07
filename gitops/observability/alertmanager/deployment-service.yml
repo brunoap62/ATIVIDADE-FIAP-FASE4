@@ -15,6 +15,24 @@ spec:
       labels:
         app: alertmanager
     spec:
+      initContainers:
+        - name: init-pagerduty-secret
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              if [ -f /etc/alertmanager/eso-secrets/PAGERDUTY_ROUTING_KEY ]; then
+                cp /etc/alertmanager/eso-secrets/PAGERDUTY_ROUTING_KEY /etc/alertmanager/secrets/PAGERDUTY_ROUTING_KEY
+              else
+                printf "00000000000000000000000000000000" > /etc/alertmanager/secrets/PAGERDUTY_ROUTING_KEY
+              fi
+          volumeMounts:
+            - name: eso-secrets
+              mountPath: /etc/alertmanager/eso-secrets
+              readOnly: true
+            - name: alertmanager-secrets
+              mountPath: /etc/alertmanager/secrets
       containers:
         - name: alertmanager
           image: prom/alertmanager:v0.27.0
@@ -47,12 +65,21 @@ spec:
           volumeMounts:
             - name: alertmanager-config
               mountPath: /etc/alertmanager
+            - name: alertmanager-secrets
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
             - name: alertmanager-storage
               mountPath: /alertmanager
       volumes:
         - name: alertmanager-config
           configMap:
             name: alertmanager-config
+        - name: eso-secrets
+          secret:
+            secretName: observability-secrets
+            optional: true
+        - name: alertmanager-secrets
+          emptyDir: {}
         - name: alertmanager-storage
           emptyDir: {}
 ---

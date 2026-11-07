@@ -1,0 +1,393 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: self-healing-script
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+data:
+  server.py: |
+    import os
+    import ssl
+    import json
+    import time
+    import datetime
+    import urllib.request
+    import urllib.error
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    ALLOWED_SERVICES = {
+        "auth-service",
+        "flag-service",
+        "targeting-service",
+        "evaluation-service",
+        "analytics-service",
+    }
+    TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "toggle-master")
+    COOLDOWN_SECONDS = int(os.getenv("SELF_HEALING_COOLDOWN_SECONDS", "60"))
+    OTLP_ENDPOINT = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://otel-collector.observability.svc.cluster.local:4318",
+    ).rstrip("/")
+
+    LAST_RESTART_BY_SERVICE = {}
+    EXECUTION_HISTORY = []
+
+
+    def now_iso():
+        return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+    def emit_otlp_log(severity, message, service_name):
+        ts = now_iso()
+        print(f"[{ts}] [{severity}] [service={service_name}] {message}", flush=True)
+        if not OTLP_ENDPOINT:
+            return
+        payload = {
+            "resourceLogs": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {"key": "service.name", "value": {"stringValue": "self-healing-webhook"}},
+                            {"key": "target.service", "value": {"stringValue": service_name}},
+                            {"key": "deployment.environment", "value": {"stringValue": "production"}},
+                        ]
+                    },
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "timeUnixNano": str(time.time_ns()),
+                                    "severityText": severity,
+                                    "body": {"stringValue": message},
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"{OTLP_ENDPOINT}/v1/logs",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=2) as _:
+                pass
+        except Exception:
+            pass
+
+
+    def get_secret_value(env_key, secret_file_path):
+        if os.path.exists(secret_file_path):
+            try:
+                with open(secret_file_path, "r", encoding="utf-8") as f:
+                    val = f.read().strip()
+                    if val:
+                        return val
+            except Exception:
+                pass
+        return os.getenv(env_key, "").strip()
+
+
+    def send_discord_embed(title, description, color, fields):
+        webhook_url = get_secret_value(
+            "DISCORD_WEBHOOK_URL", "/etc/self-healing/secrets/DISCORD_WEBHOOK_URL"
+        )
+        if not webhook_url or "placeholder/unconfigured" in webhook_url:
+            emit_otlp_log(
+                "WARN",
+                "DISCORD_WEBHOOK_URL ainda nao configurada (usando placeholder). Notificacao registrada nos logs.",
+                "discord-chatops",
+            )
+            return False
+
+        payload = {
+            "username": "ToggleMaster SRE • Runbook & Self-Healing Bot",
+            "embeds": [
+                {
+                    "title": title,
+                    "description": description,
+                    "color": color,
+                    "fields": fields,
+                    "footer": {
+                        "text": "ToggleMaster Fase 4 • OpenTelemetry + Prometheus + Alertmanager + PagerDuty + K8s Self-Healing"
+                    },
+                    "timestamp": now_iso(),
+                }
+            ],
+        }
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "ToggleMaster-SelfHealing-Bot/1.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                emit_otlp_log(
+                    "INFO",
+                    f"Notificacao enviada ao Discord com sucesso (HTTP {resp.status}): {title}",
+                    "discord-chatops",
+                )
+                return True
+        except Exception as exc:
+            emit_otlp_log("ERROR", f"Falha ao enviar notificacao ao Discord: {exc}", "discord-chatops")
+            return False
+
+
+    def send_pagerduty_event(event_action, dedup_key, summary, service_name, severity, details):
+        routing_key = get_secret_value(
+            "PAGERDUTY_ROUTING_KEY", "/etc/self-healing/secrets/PAGERDUTY_ROUTING_KEY"
+        )
+        if not routing_key or routing_key == "00000000000000000000000000000000":
+            emit_otlp_log(
+                "WARN",
+                "PAGERDUTY_ROUTING_KEY ainda nao configurada (usando placeholder). Evento registrado nos logs.",
+                service_name,
+            )
+            return False
+
+        pd_severity = severity if severity in ("critical", "error", "warning", "info") else "critical"
+        payload = {
+            "routing_key": routing_key,
+            "event_action": event_action,
+            "dedup_key": dedup_key,
+            "payload": {
+                "summary": summary,
+                "source": f"eks:toggle-master:{service_name}",
+                "severity": pd_severity,
+                "component": service_name,
+                "group": "toggle-master",
+                "class": "golden-signals-5xx",
+                "custom_details": details,
+            },
+        }
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                "https://events.pagerduty.com/v2/enqueue",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                emit_otlp_log(
+                    "INFO",
+                    f"Evento PagerDuty '{event_action}' enviado com sucesso (dedup_key={dedup_key}, HTTP {resp.status})",
+                    service_name,
+                )
+                return True
+        except Exception as exc:
+            emit_otlp_log("ERROR", f"Erro ao enviar evento ao PagerDuty: {exc}", service_name)
+            return False
+
+
+    def rollout_restart_deployment(service_name):
+        if service_name not in ALLOWED_SERVICES:
+            return False, f"Servico '{service_name}' fora da lista permitida de Self-Healing."
+
+        now_ts = time.time()
+        last_ts = LAST_RESTART_BY_SERVICE.get(service_name, 0)
+        if now_ts - last_ts < COOLDOWN_SECONDS:
+            remaining = int(COOLDOWN_SECONDS - (now_ts - last_ts))
+            msg = f"Cooldown ativo para {service_name} (aguardando {remaining}s para evitar loop de restarts)."
+            emit_otlp_log("INFO", msg, service_name)
+            return False, msg
+
+        restarted_at = now_iso()
+        token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+        if not os.path.exists(token_path):
+            LAST_RESTART_BY_SERVICE[service_name] = now_ts
+            msg = f"[DRY-RUN LOCAL] kubectl rollout restart deployment/{service_name} -n {TARGET_NAMESPACE} (restartedAt={restarted_at})"
+            emit_otlp_log("INFO", msg, service_name)
+            return True, msg
+
+        with open(token_path, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+
+        url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{TARGET_NAMESPACE}/deployments/{service_name}"
+        patch_body = {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": restarted_at,
+                            "togglemaster.io/selfHealingRunbook": "RB-001",
+                        }
+                    }
+                }
+            }
+        }
+        data = json.dumps(patch_body).encode("utf-8")
+        ctx = ssl.create_default_context(cafile=ca_path) if os.path.exists(ca_path) else ssl._create_unverified_context()
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json",
+                "Accept": "application/json",
+            },
+            method="PATCH",
+        )
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+                LAST_RESTART_BY_SERVICE[service_name] = now_ts
+                msg = (
+                    f"[SELF-HEALING] [RB-001] Executado: kubectl rollout restart deployment/{service_name} "
+                    f"-n {TARGET_NAMESPACE} -> HTTP {resp.status} OK (restartedAt={restarted_at})"
+                )
+                emit_otlp_log("INFO", msg, service_name)
+                return True, msg
+        except Exception as exc:
+            msg = f"Falha ao executar PATCH no Deployment {service_name}: {exc}"
+            emit_otlp_log("ERROR", msg, service_name)
+            return False, msg
+
+
+    class SelfHealingHandler(BaseHTTPRequestHandler):
+        def _send_json(self, status_code, obj):
+            body = json.dumps(obj).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path.startswith("/health"):
+                self._send_json(200, {"status": "healthy", "service": "self-healing-webhook"})
+                return
+            if self.path.startswith("/history"):
+                self._send_json(200, {"history": EXECUTION_HISTORY[-20:]})
+                return
+            self._send_json(404, {"error": "not found"})
+
+        def do_POST(self):
+            if not self.path.startswith("/webhook"):
+                self._send_json(404, {"error": "not found"})
+                return
+
+            content_len = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+            try:
+                payload = json.loads(raw_body)
+            except Exception:
+                self._send_json(400, {"error": "invalid json"})
+                return
+
+            alerts = payload.get("alerts", [])
+            results = []
+
+            for alert in alerts:
+                status = alert.get("status", payload.get("status", "firing"))
+                labels = alert.get("labels", {})
+                annotations = alert.get("annotations", {})
+
+                alertname = labels.get("alertname", "ToggleMasterAlert")
+                service_name = labels.get("service_name", "unknown-service")
+                severity = labels.get("severity", "critical")
+                self_healing_flag = labels.get("self_healing", "false") == "true"
+                runbook_id = labels.get("runbook_id", "RB-001")
+                summary = annotations.get("summary", f"Alerta {alertname} em {service_name}")
+                description = annotations.get("description", "Degradacao detectada pelos Golden Signals.")
+                dedup_key = f"togglemaster-{alertname}-{service_name}"
+
+                if status == "firing":
+                    emit_otlp_log(
+                        "ERROR",
+                        f"[ALERT FIRING] {alertname} detectado em {service_name}: {description}",
+                        service_name,
+                    )
+                    send_pagerduty_event(
+                        "trigger",
+                        dedup_key,
+                        summary,
+                        service_name,
+                        severity,
+                        {"description": description, "runbook_id": runbook_id, "self_healing": self_healing_flag},
+                    )
+                    send_discord_embed(
+                        title=f"🚨 [FIRING] {alertname} — {service_name}",
+                        description=description,
+                        color=0xE74C3C,
+                        fields=[
+                            {"name": "🧩 Microsserviço", "value": f"`{service_name}`", "inline": True},
+                            {"name": "🔥 Severidade", "value": f"`{severity.upper()}`", "inline": True},
+                            {"name": "📖 Runbook", "value": f"`{runbook_id}`", "inline": True},
+                            {"name": "📟 PagerDuty", "value": "Incidente aberto automaticamente (`Events API v2`)", "inline": False},
+                        ],
+                    )
+
+                    if self_healing_flag:
+                        restarted, action_msg = rollout_restart_deployment(service_name)
+                        record = {
+                            "timestamp": now_iso(),
+                            "alertname": alertname,
+                            "service_name": service_name,
+                            "runbook_id": runbook_id,
+                            "restarted": restarted,
+                            "message": action_msg,
+                        }
+                        EXECUTION_HISTORY.append(record)
+                        results.append(record)
+
+                        if restarted:
+                            send_discord_embed(
+                                title=f"🛠️ [SELF-HEALING EXECUTADO] Runbook {runbook_id} — {service_name}",
+                                description=(
+                                    f"O controlador de **Self-Healing** executou a mitigação automática no cluster EKS sem intervenção humana!"
+                                ),
+                                color=0x3498DB,
+                                fields=[
+                                    {"name": "1️⃣ Diagnóstico", "value": f"Taxa de erros HTTP 5xx > 5% em `{service_name}`", "inline": False},
+                                    {"name": "2️⃣ Comando Executado (API K8s)", "value": f"`kubectl rollout restart deployment/{service_name} -n {TARGET_NAMESPACE}`", "inline": False},
+                                    {"name": "3️⃣ Status do Rollout", "value": "✅ Novo Pod saudável em criação (`RollingUpdate`)", "inline": True},
+                                    {"name": "4️⃣ Timestamp", "value": f"`{record['timestamp']}`", "inline": True},
+                                ],
+                            )
+                elif status == "resolved":
+                    emit_otlp_log(
+                        "INFO",
+                        f"[ALERT RESOLVED] {alertname} normalizado em {service_name} após Self-Healing!",
+                        service_name,
+                    )
+                    send_pagerduty_event(
+                        "resolve",
+                        dedup_key,
+                        f"[RESOLVED] {summary}",
+                        service_name,
+                        severity,
+                        {"status": "resolved_by_self_healing", "runbook_id": runbook_id},
+                    )
+                    send_discord_embed(
+                        title=f"🟢 [RESOLVED] {alertname} — {service_name} Normalizado!",
+                        description=(
+                            f"A taxa de erros HTTP 5xx do serviço `{service_name}` voltou para **0%** após o `rollout restart` automático do Self-Healing. Incidente encerrado no PagerDuty!"
+                        ),
+                        color=0x2ECC71,
+                        fields=[
+                            {"name": "🧩 Microsserviço", "value": f"`{service_name}`", "inline": True},
+                            {"name": "📟 PagerDuty", "value": "Incidente resolvido automaticamente (`Auto-Resolved`)", "inline": True},
+                        ],
+                    )
+
+            self._send_json(200, {"status": "processed", "actions": results})
+
+
+    if __name__ == "__main__":
+        port = int(os.getenv("PORT", "8080"))
+        emit_otlp_log("INFO", f"Self-Healing Webhook Controller iniciado na porta {port}", "self-healing-webhook")
+        server = HTTPServer(("0.0.0.0", port), SelfHealingHandler)
+        server.serve_forever()

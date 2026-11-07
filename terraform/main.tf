@@ -202,6 +202,8 @@ module "ssm_parameters" {
   sqs_queue_id               = module.sqs.queue_id
   evaluation_service_api_key = var.evaluation_service_api_key
   dynamodb_table_name        = module.dynamodb.table_name
+  pagerduty_routing_key      = var.pagerduty_routing_key
+  discord_webhook_url        = var.discord_webhook_url
 
   depends_on = [
     module.auth_rds,

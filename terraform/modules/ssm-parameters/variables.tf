@@ -98,3 +98,16 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
+
+variable "pagerduty_routing_key" {
+  description = "Integration Key (Routing Key Events API v2) do PagerDuty"
+  type        = string
+  sensitive   = true
+}
+
+variable "discord_webhook_url" {
+  description = "URL do Webhook do Discord para ChatOps e Self-Healing"
+  type        = string
+  sensitive   = true
+}
+

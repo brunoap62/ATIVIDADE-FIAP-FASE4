@@ -23,9 +23,10 @@ import (
 )
 
 var (
-	tracer       trace.Tracer
-	otlpHTTPBase string
-	chaosEnabled atomic.Bool
+	tracer             trace.Tracer
+	otlpHTTPBase       string
+	chaosEnabled       atomic.Bool
+	chaosIncludeHealth atomic.Bool
 )
 
 type otlpHTTPJSONExporter struct {
@@ -258,7 +259,7 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 
 		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
-		if chaosEnabled.Load() && route != "/chaos" {
+		if chaosEnabled.Load() && route != "/chaos" && (route != "/health" || chaosIncludeHealth.Load()) {
 			rec.WriteHeader(http.StatusInternalServerError)
 			_, _ = rec.Write([]byte(`{"error":"[CHAOS_FAULT_INJECTION] Falha crítica simulada no evaluation-service"}`))
 			span.SetAttributes(attribute.Int("http.status_code", http.StatusInternalServerError))
@@ -283,19 +284,28 @@ func (a *App) otelMiddleware(route string, next http.HandlerFunc) http.HandlerFu
 }
 
 func (a *App) chaosHandler(w http.ResponseWriter, r *http.Request) {
+	incHealth := r.URL.Query().Get("include_health")
+	if incHealth == "true" || incHealth == "1" {
+		chaosIncludeHealth.Store(true)
+	} else if incHealth == "false" || incHealth == "0" {
+		chaosIncludeHealth.Store(false)
+	}
+
 	switch r.URL.Query().Get("enable") {
 	case "true", "1":
 		chaosEnabled.Store(true)
 		emitOTLPLog(r.Context(), "ERROR", "[CHAOS_MODE_ENABLED] Injeção de falhas HTTP 500 ativada no evaluation-service!", http.StatusOK, "/chaos")
 	case "false", "0":
 		chaosEnabled.Store(false)
+		chaosIncludeHealth.Store(false)
 		emitOTLPLog(r.Context(), "INFO", "[CHAOS_MODE_DISABLED] Injeção de falhas desativada no evaluation-service.", http.StatusOK, "/chaos")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"service":       "evaluation-service",
-		"chaos_enabled": chaosEnabled.Load(),
+		"service":        "evaluation-service",
+		"chaos_enabled":  chaosEnabled.Load(),
+		"include_health": chaosIncludeHealth.Load(),
 	})
 }

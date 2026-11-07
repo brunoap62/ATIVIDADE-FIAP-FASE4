@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healing-sa
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: self-healing-restarter-role
+  namespace: toggle-master
+  labels:
+    app: self-healing-webhook
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: self-healing-restarter-binding
+  namespace: toggle-master
+  labels:
+    app: self-healing-webhook
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-sa
+    namespace: observability
+roleRef:
+  kind: Role
+  name: self-healing-restarter-role
+  apiGroup: rbac.authorization.k8s.io

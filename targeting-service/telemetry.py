@@ -8,7 +8,7 @@ from flask import request, g, jsonify
 
 SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "targeting-service")
 POD_NAME = os.getenv("HOSTNAME", f"{SERVICE_NAME}-local")
-CHAOS_STATE = {"enabled": False}
+CHAOS_STATE = {"enabled": False, "include_health": False}
 
 
 def _otlp_base_url():
@@ -155,6 +155,12 @@ def instrument_flask_app(app):
     @app.route("/chaos", methods=["GET", "POST"])
     @app.route("/targeting-api/chaos", methods=["GET", "POST"])
     def chaos_handler():
+        inc_health = request.args.get("include_health", "").lower()
+        if inc_health in ("true", "1"):
+            CHAOS_STATE["include_health"] = True
+        elif inc_health in ("false", "0"):
+            CHAOS_STATE["include_health"] = False
+
         enable = request.args.get("enable", "").lower()
         if enable in ("true", "1"):
             CHAOS_STATE["enabled"] = True
@@ -168,6 +174,7 @@ def instrument_flask_app(app):
             )
         elif enable in ("false", "0"):
             CHAOS_STATE["enabled"] = False
+            CHAOS_STATE["include_health"] = False
             emit_otlp_log(
                 "INFO",
                 f"[CHAOS_MODE_DISABLED] Injeção de falhas desativada no {SERVICE_NAME}.",
@@ -176,7 +183,11 @@ def instrument_flask_app(app):
                 getattr(g, "trace_id", ""),
                 getattr(g, "span_id", ""),
             )
-        return jsonify({"service": SERVICE_NAME, "chaos_enabled": CHAOS_STATE["enabled"]}), 200
+        return jsonify({
+            "service": SERVICE_NAME,
+            "chaos_enabled": CHAOS_STATE["enabled"],
+            "include_health": CHAOS_STATE["include_health"],
+        }), 200
 
     @app.before_request
     def otel_before_request():
@@ -186,7 +197,12 @@ def instrument_flask_app(app):
         g.parent_span_id = parent_span_id
         g.span_id = secrets.token_hex(8)
 
-        if CHAOS_STATE["enabled"] and not request.path.endswith("/chaos"):
+        is_health = request.path.endswith("/health")
+        if (
+            CHAOS_STATE["enabled"]
+            and not request.path.endswith("/chaos")
+            and (not is_health or CHAOS_STATE.get("include_health", False))
+        ):
             return (
                 jsonify({"error": f"Falha crítica simulada (Chaos Mode ativo no {SERVICE_NAME})"}),
                 500,

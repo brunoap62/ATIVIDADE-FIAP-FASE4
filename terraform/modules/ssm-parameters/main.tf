@@ -123,3 +123,31 @@ resource "aws_ssm_parameter" "analytics_service_sqs_url" {
     ManagedBy   = "Terraform"
   }
 }
+
+# --- Observability, Incident Management & ChatOps (Fase 4) ---
+resource "aws_ssm_parameter" "observability_pagerduty_routing_key" {
+  name        = "/observability/pagerduty_routing_key"
+  description = "Integration Key (Routing Key Events API v2) do PagerDuty para abertura automatica de incidentes"
+  type        = "SecureString"
+  value       = var.pagerduty_routing_key
+
+  tags = {
+    Environment = var.environment
+    Service     = "observability"
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_ssm_parameter" "observability_discord_webhook_url" {
+  name        = "/observability/discord_webhook_url"
+  description = "URL do Webhook do Discord para notificacoes de ChatOps e Self-Healing"
+  type        = "SecureString"
+  value       = var.discord_webhook_url
+
+  tags = {
+    Environment = var.environment
+    Service     = "observability"
+    ManagedBy   = "Terraform"
+  }
+}
+

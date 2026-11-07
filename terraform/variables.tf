@@ -115,3 +115,19 @@ variable "rds_instance_class" {
   type        = string
   default     = "db.t3.micro"
 }
+
+# --- Configurações de Observabilidade, PagerDuty e ChatOps (Fase 4) ---
+
+variable "pagerduty_routing_key" {
+  description = "Integration Key (Routing Key Events API v2) do PagerDuty para abertura automatica de incidentes"
+  type        = string
+  sensitive   = true
+  default     = "00000000000000000000000000000000"
+}
+
+variable "discord_webhook_url" {
+  description = "URL do Webhook do canal do Discord para notificacoes de ChatOps e Self-Healing"
+  type        = string
+  sensitive   = true
+  default     = "https://discord.com/api/webhooks/placeholder/unconfigured"
+}

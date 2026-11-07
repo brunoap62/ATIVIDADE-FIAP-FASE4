@@ -39,6 +39,8 @@ env:
   TF_VAR_targeting_db_password: ${{ secrets.TF_VAR_TARGETING_DB_PASSWORD || 'TempPlanPassword123!' }}
   TF_VAR_master_key: ${{ secrets.TF_VAR_MASTER_KEY || 'temp-plan-master-key' }}
   TF_VAR_evaluation_service_api_key: ${{ secrets.TF_VAR_EVALUATION_SERVICE_API_KEY || 'tm_key_0000000000000000000000000000000000000000000000000000000000000000' }}
+  TF_VAR_pagerduty_routing_key: ${{ secrets.PAGERDUTY_ROUTING_KEY || '00000000000000000000000000000000' }}
+  TF_VAR_discord_webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/placeholder/unconfigured' }}
 
 jobs:
   # ==============================================================================
