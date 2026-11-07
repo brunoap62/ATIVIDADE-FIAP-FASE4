@@ -19,4 +19,4 @@ resources:
 images:
 - name: fase2-targeting-service
   newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase3/targeting-service
-  newTag: 19f3c022a45cf603c56f39e77f25e4f3d1a09f3c
+  newTag: 484ddfdcf5b6cff08474d9521250a239a0cfa8ce
