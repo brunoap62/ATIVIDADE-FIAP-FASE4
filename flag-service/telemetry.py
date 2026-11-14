@@ -163,38 +163,42 @@ def get_outbound_trace_headers():
     )
 
 
+def _update_chaos_state():
+    inc_health = request.args.get("include_health", "").lower()
+    if inc_health in ("true", "1"):
+        CHAOS_STATE["include_health"] = True
+    elif inc_health in ("false", "0"):
+        CHAOS_STATE["include_health"] = False
+
+    enable = request.args.get("enable", "").lower()
+    if enable in ("true", "1"):
+        CHAOS_STATE["enabled"] = True
+        emit_otlp_log(
+            "ERROR",
+            f"[CHAOS_MODE_ENABLED] Injeção de falhas HTTP 500 ativada no {SERVICE_NAME}!",
+            200,
+            "/chaos",
+            getattr(g, "trace_id", ""),
+            getattr(g, "span_id", ""),
+        )
+    elif enable in ("false", "0"):
+        CHAOS_STATE["enabled"] = False
+        CHAOS_STATE["include_health"] = False
+        emit_otlp_log(
+            "INFO",
+            f"[CHAOS_MODE_DISABLED] Injeção de falhas desativada no {SERVICE_NAME}.",
+            200,
+            "/chaos",
+            getattr(g, "trace_id", ""),
+            getattr(g, "span_id", ""),
+        )
+
+
 def instrument_flask_app(app):
     @app.route("/chaos", methods=["GET", "POST"])
     @app.route("/flags-api/chaos", methods=["GET", "POST"])
     def chaos_handler():
-        inc_health = request.args.get("include_health", "").lower()
-        if inc_health in ("true", "1"):
-            CHAOS_STATE["include_health"] = True
-        elif inc_health in ("false", "0"):
-            CHAOS_STATE["include_health"] = False
-
-        enable = request.args.get("enable", "").lower()
-        if enable in ("true", "1"):
-            CHAOS_STATE["enabled"] = True
-            emit_otlp_log(
-                "ERROR",
-                f"[CHAOS_MODE_ENABLED] Injeção de falhas HTTP 500 ativada no {SERVICE_NAME}!",
-                200,
-                "/chaos",
-                getattr(g, "trace_id", ""),
-                getattr(g, "span_id", ""),
-            )
-        elif enable in ("false", "0"):
-            CHAOS_STATE["enabled"] = False
-            CHAOS_STATE["include_health"] = False
-            emit_otlp_log(
-                "INFO",
-                f"[CHAOS_MODE_DISABLED] Injeção de falhas desativada no {SERVICE_NAME}.",
-                200,
-                "/chaos",
-                getattr(g, "trace_id", ""),
-                getattr(g, "span_id", ""),
-            )
+        _update_chaos_state()
         return jsonify({
             "service": SERVICE_NAME,
             "chaos_enabled": CHAOS_STATE["enabled"],

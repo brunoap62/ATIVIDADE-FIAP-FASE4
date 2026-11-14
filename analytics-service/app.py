@@ -170,6 +170,7 @@ def process_message(message):
             consumer_span_id,
         )
 
+
 def sqs_worker_loop():
     """ Loop principal do worker que ouve a fila SQS """
     log.info("Iniciando o worker SQS...")
@@ -182,28 +183,30 @@ def sqs_worker_loop():
                 WaitTimeSeconds=20,
                 MessageAttributeNames=['All']
             )
-            
+
             messages = response.get('Messages', [])
             if not messages:
                 # Nenhuma mensagem, continua o loop
                 continue
-                
+
             log.info(f"Recebidas {len(messages)} mensagens.")
-            
+
             for message in messages:
                 process_message(message)
-                
+
         except ClientError as e:
             log.error(f"Erro do Boto3 no loop principal do SQS: {e}")
-            time.sleep(10) # Pausa antes de tentar novamente
+            time.sleep(10)  # Pausa antes de tentar novamente
         except Exception as e:
             log.error(f"Erro inesperado no loop principal do SQS: {e}")
             time.sleep(10)
+
 
 # --- Servidor Flask (Health Check + Telemetria/Chaos) ---
 
 app = Flask(__name__)
 instrument_flask_app(app)
+
 
 @app.route('/health')
 @app.route('/analytics-api/health')
@@ -212,12 +215,15 @@ def health():
     # Uma verificação de saúde real poderia checar a conexão com o DynamoDB/SQS
     return jsonify({"status": "ok"})
 
+
 # --- Inicialização ---
+
 
 def start_worker():
     """ Inicia o worker SQS em uma thread separada """
     worker_thread = threading.Thread(target=sqs_worker_loop, daemon=True)
     worker_thread.start()
+
 
 # Inicia o worker SQS em uma thread de background
 # Isso garante que ele inicie tanto com 'flask run' quanto com 'gunicorn'

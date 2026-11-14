@@ -11,9 +11,9 @@ Este documento contém os procedimentos operacionais padronizados (**Runbooks**)
 - **Expressão PromQL:**
   ```promql
   (
-    sum by (service_name) (rate(traces_spanmetrics_calls_total{http_status_code=~"5.."}[1m]))
+    sum by (service) (rate(traces_spanmetrics_calls_total{http_status_code=~"5.."}[1m]))
     /
-    clamp_min(sum by (service_name) (rate(traces_spanmetrics_calls_total[1m])), 0.0001)
+    clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total[1m])), 0.0001)
   ) * 100 > 5
   ```
 - **Janela de Sustentação (`for`):** `30s` (Prevenção de *Alert Fatigue* contra falhas transitórias de rede).
@@ -50,7 +50,7 @@ Quando o alerta entra em estado **`FIRING`**, o **Alertmanager** aciona simultan
 - **Nome da Regra:** `ToggleMasterHighLatencyP95`
 - **Expressão PromQL:**
   ```promql
-  histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket[2m]))) > 1000
+  histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[2m]))) > 1000
   ```
 - **Janela de Sustentação (`for`):** `1m`
 - **Severidade:** `warning` (Inibido automaticamente pelo Alertmanager caso `ToggleMasterHighErrorRate5xx` esteja ativo para o mesmo serviço).

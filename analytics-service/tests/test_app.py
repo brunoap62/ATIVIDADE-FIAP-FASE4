@@ -1,16 +1,16 @@
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
+import pytest
 
 # Adiciona o diretório raiz do analytics-service ao sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pytest
-from unittest.mock import patch, MagicMock
-
 os.environ["AWS_REGION"] = "us-east-2"
 os.environ["AWS_SQS_URL"] = "https://sqs.us-east-2.amazonaws.com/123/queue"
 os.environ["AWS_DYNAMODB_TABLE"] = "ToggleMasterAnalytics"
+
 
 @pytest.fixture(autouse=True)
 def mock_boto3():
@@ -20,6 +20,7 @@ def mock_boto3():
         with patch("threading.Thread"):
             yield mock_client
 
+
 def test_health_check(mock_boto3):
     from app import app
     client = app.test_client()
@@ -28,6 +29,7 @@ def test_health_check(mock_boto3):
     data = response.get_json()
     assert "status" in data
     assert "ok" in data["status"]
+
 
 def test_analytics_health_check(mock_boto3):
     from app import app

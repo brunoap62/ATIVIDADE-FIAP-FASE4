@@ -38,18 +38,19 @@ except psycopg2.OperationalError as e:
     log.critical(f"Erro fatal ao conectar ao PostgreSQL: {e}")
     sys.exit(1)
 
+
 def init_db(connection_pool):
     """Executa a auto-migração criando a tabela flags e triggers de timestamp caso não existam"""
     ddl_statements = """
     CREATE TABLE IF NOT EXISTS flags (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(100) UNIQUE NOT NULL, 
+        name VARCHAR(100) UNIQUE NOT NULL,
         description TEXT,
         is_enabled BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     CREATE OR REPLACE FUNCTION trigger_set_timestamp()
     RETURNS TRIGGER AS $$
     BEGIN
@@ -73,14 +74,18 @@ def init_db(connection_pool):
         conn.commit()
         log.info("Auto-Migration concluída com sucesso: tabela 'flags' e triggers verificados/criados.")
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         log.critical(f"Erro fatal na auto-migração do banco de dados: {e}")
         sys.exit(1)
     finally:
-        if conn: connection_pool.putconn(conn)
+        if conn:
+            connection_pool.putconn(conn)
+
 
 # Executa a auto-migração na inicialização
 init_db(pool)
+
 
 # --- Middleware de Autenticação ---
 def require_auth(f):
@@ -90,7 +95,7 @@ def require_auth(f):
         auth_header = request.headers.get("Authorization")
         if not auth_header:
             return jsonify({"error": "Authorization header obrigatório"}), 401
-        
+
         try:
             # Chama o /validate do auth-service propagando W3C TraceContext
             validate_url = f"{AUTH_SERVICE_URL}/validate"
@@ -113,23 +118,26 @@ def require_auth(f):
             if response.status_code != 200:
                 log.warning(f"Falha na validação da chave (status: {response.status_code})")
                 return jsonify({"error": "Chave de API inválida"}), 401
-        
+
         except requests.exceptions.Timeout:
             log.error("Timeout ao conectar com o auth-service")
-            return jsonify({"error": "Serviço de autenticação indisponível (timeout)"}), 504 # Gateway Timeout
+            return jsonify({"error": "Serviço de autenticação indisponível (timeout)"}), 504  # Gateway Timeout
         except requests.exceptions.RequestException as e:
             log.error(f"Erro ao conectar com o auth-service: {e}")
-            return jsonify({"error": "Serviço de autenticação indisponível"}), 503 # Service Unavailable
+            return jsonify({"error": "Serviço de autenticação indisponível"}), 503  # Service Unavailable
 
         # Se a chave for válida, continua para a rota
         return f(*args, **kwargs)
     return decorated
 
+
 # --- Endpoints da API ---
+
 
 @app.route('/health')
 def health():
     return jsonify({"status": "ok flag-service"})
+
 
 @app.route('/flags', methods=['POST'])
 @app.route('/', methods=['POST'])
@@ -139,11 +147,11 @@ def create_flag():
     data = request.get_json()
     if not data or 'name' not in data:
         return jsonify({"error": "'name' é obrigatório"}), 400
-    
+
     name = data['name']
     description = data.get('description', '')
     is_enabled = data.get('is_enabled', False)
-    
+
     conn = None
     cur = None
     try:
@@ -159,16 +167,21 @@ def create_flag():
         log.info(f"Flag '{name}' criada com sucesso.")
         return jsonify(new_flag), 201
     except psycopg2.IntegrityError:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         log.warning(f"Tentativa de criar flag duplicada: '{name}'")
         return jsonify({"error": f"Flag '{name}' já existe"}), 409
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         log.error(f"Erro ao criar flag: {e}")
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
     finally:
-        if cur: cur.close()
-        if conn: pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            pool.putconn(conn)
+
 
 @app.route('/flags', methods=['GET'])
 @app.route('/', methods=['GET'])
@@ -187,8 +200,11 @@ def get_flags():
         log.error(f"Erro ao buscar flags: {e}")
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
     finally:
-        if cur: cur.close()
-        if conn: pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            pool.putconn(conn)
+
 
 @app.route('/flags/<string:name>', methods=['GET'])
 @app.route('/<string:name>', methods=['GET'])
@@ -209,8 +225,11 @@ def get_flag(name):
         log.error(f"Erro ao buscar flag '{name}': {e}")
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
     finally:
-        if cur: cur.close()
-        if conn: pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            pool.putconn(conn)
+
 
 @app.route('/flags/<string:name>', methods=['PUT'])
 @app.route('/<string:name>', methods=['PUT'])
@@ -223,7 +242,7 @@ def update_flag(name):
 
     fields = []
     values = []
-    
+
     # Constrói a query dinamicamente
     if 'description' in data:
         fields.append("description = %s")
@@ -231,35 +250,39 @@ def update_flag(name):
     if 'is_enabled' in data:
         fields.append("is_enabled = %s")
         values.append(data['is_enabled'])
-    
+
     if not fields:
         return jsonify({"error": "Pelo menos um campo ('description', 'is_enabled') é obrigatório"}), 400
-    
-    values.append(name) # Adiciona o 'name' para a cláusula WHERE
-    
+
+    values.append(name)  # Adiciona o 'name' para a cláusula WHERE
+
     query = f"UPDATE flags SET {', '.join(fields)} WHERE name = %s RETURNING *"
-    
+
     conn = None
     cur = None
     try:
         conn = pool.getconn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(query, tuple(values))
-        
+
         if cur.rowcount == 0:
             return jsonify({"error": "Flag não encontrada"}), 404
-            
+
         updated_flag = cur.fetchone()
         conn.commit()
         log.info(f"Flag '{name}' atualizada com sucesso.")
         return jsonify(updated_flag), 200
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         log.error(f"Erro ao atualizar flag '{name}': {e}")
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
     finally:
-        if cur: cur.close()
-        if conn: pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            pool.putconn(conn)
+
 
 @app.route('/flags/<string:name>', methods=['DELETE'])
 @app.route('/<string:name>', methods=['DELETE'])
@@ -272,20 +295,24 @@ def delete_flag(name):
         conn = pool.getconn()
         cur = conn.cursor()
         cur.execute("DELETE FROM flags WHERE name = %s", (name,))
-        
+
         if cur.rowcount == 0:
             return jsonify({"error": "Flag não encontrada"}), 404
-            
+
         conn.commit()
         log.info(f"Flag '{name}' deletada com sucesso.")
-        return "", 204 # 204 No Content
+        return "", 204  # 204 No Content
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         log.error(f"Erro ao deletar flag '{name}': {e}")
         return jsonify({"error": "Erro interno do servidor", "details": str(e)}), 500
     finally:
-        if cur: cur.close()
-        if conn: pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            pool.putconn(conn)
+
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8002))

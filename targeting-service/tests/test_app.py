@@ -1,15 +1,15 @@
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
+import pytest
 
 # Adiciona o diretório raiz do targeting-service ao sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pytest
-from unittest.mock import patch, MagicMock
-
 os.environ["DATABASE_URL"] = "postgresql://localhost:5432/targeting_db_test"
 os.environ["AUTH_SERVICE_URL"] = "http://auth-service"
+
 
 @pytest.fixture(autouse=True)
 def mock_db_pool():
@@ -21,6 +21,7 @@ def mock_db_pool():
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_pool_cls.return_value = mock_pool
         yield mock_pool
+
 
 def test_health_check(mock_db_pool):
     from app import app
