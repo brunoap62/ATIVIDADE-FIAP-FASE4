@@ -42,3 +42,13 @@ rds_instance_class = "db.t3.micro"
 # Tipo de Instância para o Cluster ElastiCache Redis (Free Tier: cache.t3.micro)
 redis_node_type = "cache.t3.micro"
 
+# ==============================================================================
+# Configurações de Observabilidade, Incidentes e ChatOps (Fase 4)
+# ==============================================================================
+# Integration Key (Events API v2) do Serviço no PagerDuty
+pagerduty_routing_key = "SubstituaPelaSuaIntegrationKeyDoPagerDuty"
+
+# URL do Webhook do Canal do Discord para ChatOps e Self-Healing
+discord_webhook_url = "SubstituaPelaSuaUrlDeWebhookDoDiscord"
+
+
