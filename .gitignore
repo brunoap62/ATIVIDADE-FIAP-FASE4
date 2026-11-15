@@ -4,6 +4,7 @@
 terraform/ingress_output.tf
 *.env
 *.pdf
+*.mp4
 POSTECH - Tech Challenge - Fase 4.pdf
 LEMBRETES.md
 ROTEIRO_TESTES_ETAPAS_1_A_4.md
