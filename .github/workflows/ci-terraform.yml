@@ -29,7 +29,7 @@ permissions:
 env:
   TF_WORKING_DIR: terraform
   AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
-  TF_VAR_project_name: ${{ secrets.PROJECT_NAME || 'toggle-master-fase3' }}
+  TF_VAR_project_name: ${{ secrets.PROJECT_NAME || 'toggle-master-fase4' }}
   TF_VAR_aws_region: ${{ secrets.AWS_REGION || 'us-east-2' }}
   TF_VAR_auth_db_username: ${{ secrets.TF_VAR_AUTH_DB_USERNAME || 'jojoadmin' }}
   TF_VAR_auth_db_password: ${{ secrets.TF_VAR_AUTH_DB_PASSWORD || 'TempPlanPassword123!' }}

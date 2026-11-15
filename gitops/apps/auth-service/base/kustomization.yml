@@ -19,5 +19,5 @@ resources:
 # O "newName" é a imagem real no ECR
 images:
 - name: fase2-auth-service
-  newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase3/auth-service
+  newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase4/auth-service
   newTag: c3108df24db7ac88faeb8024676cbeec1590dd35

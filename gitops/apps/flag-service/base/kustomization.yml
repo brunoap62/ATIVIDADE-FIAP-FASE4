@@ -18,5 +18,5 @@ resources:
 # O "newName" e "newTag" são atualizados dinamicamente pelo CI/CD
 images:
 - name: fase2-flag-service
-  newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase3/flag-service
+  newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase4/flag-service
   newTag: c3108df24db7ac88faeb8024676cbeec1590dd35

@@ -7,6 +7,19 @@ metadata:
     app: otel-collector
 data:
   otel-collector-config.yaml: |
+    # ============================================================================
+    # PEÇA CENTRAL DE OBSERVABILIDADE: OpenTelemetry Collector (OTel Collector)
+    # ============================================================================
+    # Os 5 microsserviços NÃO conhecem Prometheus, Loki ou Tempo.
+    # Eles enviam tudo via protocolo padrão OTLP para este Collector, que
+    # processa, transforma e roteia os sinais para os backends corretos.
+    # ============================================================================
+
+    # ----------------------------------------------------------------------------
+    # PASSO 1 - RECEIVERS (Porta de Entrada)
+    # Recebe os dados de telemetria (Traces, Métricas e Logs) enviados pelos
+    # 5 microsserviços via protocolo OTLP na porta 4317 (gRPC) e 4318 (HTTP).
+    # ----------------------------------------------------------------------------
     receivers:
       otlp:
         protocols:
@@ -15,6 +28,12 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+    # ----------------------------------------------------------------------------
+    # PASSO 2 - PROCESSORS (Tratamento, Proteção e Lote)
+    # 1. memory_limiter: Protege o pod do Collector contra falta de memória (limite 400MiB).
+    # 2. resource: Adiciona etiquetas fixas do ambiente (production) e do cluster EKS.
+    # 3. batch: Agrupa os dados em lotes (a cada 2s ou 1024 itens) para otimizar a rede.
+    # ----------------------------------------------------------------------------
     processors:
       memory_limiter:
         check_interval: 1s
@@ -34,9 +53,14 @@ data:
         send_batch_size: 1024
         timeout: 2s
 
+    # ----------------------------------------------------------------------------
+    # PASSO 3 - CONNECTORS (Transforma Traces em Métricas Automaticamente)
+    # 1. spanmetrics: Lê os Traces recebidos e calcula sozinho os 4 Golden Signals
+    #    (Taxa de requisições RPS, % de Erros HTTP 5xx e Latência p50/p90/p95/p99).
+    # 2. servicegraph: Lê quem chamou quem nos Traces (ex: evaluation -> flag -> auth)
+    #    e monta as métricas de conexão para desenhar o Service Map no Grafana.
+    # ----------------------------------------------------------------------------
     connectors:
-      # Gera automaticamente os 4 Golden Signals (Traffic RPS, Errors 5xx, Latency p50/p90/p95/p99)
-      # a partir dos Spans recebidos dos 5 microsserviços!
       spanmetrics:
         histogram:
           explicit:
@@ -49,8 +73,6 @@ data:
         exemplars:
           enabled: true
 
-      # Gera automaticamente as métricas de topologia (Service Map / Node Graph)
-      # conectando evaluation-service -> flag/targeting -> auth-service e SQS -> analytics-service
       servicegraph:
         latency_histogram_buckets: [2ms, 10ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s]
         dimensions:
@@ -60,21 +82,25 @@ data:
           ttl: 5s
           max_items: 1000
 
+    # ----------------------------------------------------------------------------
+    # PASSO 4 - EXPORTERS (Destinos de Saída para cada Ferramenta)
+    # 1. prometheus (:8889): Expõe as métricas para o Prometheus coletar.
+    # 2. otlp/tempo (tempo:4317): Envia os Traces Distribuídos para o Grafana Tempo (APM).
+    # 3. otlphttp/loki (loki:3100/otlp): Envia os Logs estruturados para o Loki.
+    # (Se quisermos usar New Relic ou Datadog no futuro, basta adicionar o exporter aqui!)
+    # ----------------------------------------------------------------------------
     exporters:
-      # Exporta métricas de aplicação, SpanMetrics (Golden Signals) e ServiceGraph para o Prometheus
       prometheus:
         endpoint: 0.0.0.0:8889
         enable_open_metrics: true
         resource_to_telemetry_conversion:
           enabled: true
 
-      # Exporta Traces Distribuídos via OTLP gRPC para o Grafana Tempo (APM)
       otlp/tempo:
         endpoint: tempo.observability.svc.cluster.local:4317
         tls:
           insecure: true
 
-      # Exporta Logs estruturados via OTLP HTTP para o Loki
       otlphttp/loki:
         endpoint: http://loki.observability.svc.cluster.local:3100/otlp
         tls:
@@ -87,6 +113,15 @@ data:
       health_check:
         endpoint: 0.0.0.0:13133
 
+    # ----------------------------------------------------------------------------
+    # PASSO 5 - SERVICE PIPELINES (Como o OTel Collector Roteia os Dados)
+    # Aqui definimos o caminho exato que cada sinal percorre dentro do Collector:
+    # - ROTA 1 (traces):  Entra por [otlp] -> processa -> envia para [otlp/tempo]
+    #                     e também alimenta os conectores [spanmetrics, servicegraph].
+    # - ROTA 2 (metrics): Recebe de [otlp, spanmetrics, servicegraph] -> processa ->
+    #                     entrega para o [prometheus].
+    # - ROTA 3 (logs):    Entra por [otlp] -> processa -> entrega para [otlphttp/loki].
+    # ----------------------------------------------------------------------------
     service:
       extensions: [health_check]
       pipelines:
