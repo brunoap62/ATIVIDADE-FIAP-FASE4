@@ -106,6 +106,41 @@ O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertman
   - O `self-healing-webhook` é um controlador Python rodando no namespace `observability` com uma `ServiceAccount` (`self-healing-sa`) e permissão RBAC restrita (`get`, `list`, `patch` em `deployments` do namespace `toggle-master`).
   - Ao receber o alerta, ele valida um *cooldown* de 60 segundos, aplica o `rollout restart` no deployment com falha via API do Kubernetes (`PATCH` na annotation `kubectl.kubernetes.io/restartedAt`) e envia notificações detalhadas no **Discord** (aviso de incidente, confirmação do restart executado e aviso de resolução quando a taxa de erro volta a 0%).
 
+#### Diagrama de Sequência: Fluxo de Alerta, ChatOps e Self-Healing
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Microsserviço (EKS)
+    participant Prom as Prometheus
+    participant AM as Alertmanager
+    participant PD as PagerDuty (API v2)
+    participant SH as Pod Self-Healing (Python)
+    participant K8s as Kubernetes API (EKS)
+    participant Disc as Discord (Webhook)
+
+    rect rgb(255, 235, 235)
+    Note over App,Disc: MOMENTO 1 — Falha Detectada (status: firing)
+    App->>Prom: Taxa de erro HTTP 5xx > 5% por 30s
+    Prom->>AM: Dispara alerta ToggleMasterHighErrorRate5xx (FIRING)
+    AM->>PD: Abre incidente (event_action: trigger + dedup_key)
+    AM->>SH: POST /webhook (Webhook interno no cluster)
+    SH->>Disc: 1º Card Vermelho (🚨 [FIRING] Incidente detectado)
+    SH->>K8s: PATCH Deployment (kubectl rollout restart)
+    K8s->>App: Substitui pod com falha por pod novo saudável
+    SH->>Disc: 2º Card Azul (🛠️ [SELF-HEALING EXECUTADO])
+    end
+
+    rect rgb(235, 255, 235)
+    Note over App,Disc: MOMENTO 2 — Serviço Recuperado (status: resolved)
+    App->>Prom: Taxa de erro HTTP 5xx volta para 0%
+    Prom->>AM: Alerta encerrado (RESOLVED)
+    AM->>PD: Auto-Resolve fecha o incidente sozinho (send_resolved: true)
+    AM->>SH: POST /webhook (status: resolved)
+    SH->>Disc: 3º Card Verde (🟢 [RESOLVED] Serviço normalizado)
+    end
+```
+
 ---
 
 ## 3. Justificativa Técnica das Escolhas
