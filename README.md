@@ -110,25 +110,63 @@ sequenceDiagram
 ```
 
 ### 2.3. Monitoramento no K8s e Dashboard no Grafana (`gitops/observability/grafana/`)
-O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertmanager`) e o dashboard customizado provisionados via ConfigMap:
-- **Variável `$service`:** permite filtrar todos os painéis por microsserviço ou visualizar o cluster inteiro.
-- **4 Golden Signals + HPA:**
-  - *Traffic:* taxa de requisições por segundo (RPS) por serviço.
-  - *Errors:* percentual de respostas HTTP `5xx` com linha de limite do alerta (5%) ao lado do painel de logs de erro do Loki.
-  - *Latency:* curvas de percentil `p50`, `p90`, `p95` e `p99` ao lado do **Service Map** (Node Graph) e da tabela de traces.
-  - *Saturation:* consumo de CPU e memória dos pods no EKS, réplicas atuais vs. máximas do **HPA** e contagem de restarts dos containers.
+O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertmanager`) e o dashboard customizado provisionados via ConfigMap (`configmap-dashboard.yml`), organizado em **4 faixas (rows)** com layout lado a lado (métricas à esquerda e diagnóstico de logs/traces à direita):
 
-### 2.4. Alertas Inteligentes, PagerDuty, Discord e Self-Healing (`gitops/observability/self-healing/`)
-- **Regras de Alerta (`prometheus/configmap.yml`):**
-  - `ToggleMasterHighErrorRate5xx`: dispara quando a taxa de erros HTTP `5xx` de qualquer serviço passa de **5% por 30 segundos** (`severity: critical`, `self_healing: "true"`, `runbook_id: "RB-001"`).
-  - `ToggleMasterHighLatencyP95`: dispara warning caso o percentil `p95` passe de `1000ms` por 1 minuto.
-- **Prevenção de Alert Fatigue (`alertmanager/configmap.yml`):**
-  - Agrupamento por `['alertname', 'service_name', 'namespace']` (`group_wait: 15s`, `group_interval: 1m`, `repeat_interval: 1h`) para não abrir múltiplos incidentes repetidos.
-  - Regra de inibição (`inhibit_rules`) que silencia alertas `warning` se o mesmo serviço já estiver com alerta `critical` ativo.
-- **Integração PagerDuty + Discord + Self-Healing:**
-  - Quando o alerta entra em `Firing`, o Alertmanager aciona o **PagerDuty** (via `Events API v2`) abrindo o incidente automaticamente, e chama o serviço interno `self-healing-webhook` (`POST /webhook`).
-  - O `self-healing-webhook` é um controlador Python rodando no namespace `observability` com uma `ServiceAccount` (`self-healing-sa`) e permissão RBAC restrita (`get`, `list`, `patch` em `deployments` do namespace `toggle-master`).
-  - Ao receber o alerta, ele valida um *cooldown* de 60 segundos, aplica o `rollout restart` no deployment com falha via API do Kubernetes (`PATCH` na annotation `kubectl.kubernetes.io/restartedAt`) e envia notificações detalhadas no **Discord** (aviso de incidente, confirmação do restart executado e aviso de resolução quando a taxa de erro volta a 0%).
+1. **Faixa 1 — Visão Executiva SRE (5 Cards no Topo):**
+   - **🚦 Total de Requisições:** soma de todas as chamadas de negócio recebidas pelos microsserviços (ignorando `/health`).
+   - **🔥 Errors (Taxa 5xx %):** porcentagem global de erros HTTP 500 no momento (fica verde abaixo de 1%, amarelo acima de 1% e vermelho acima de 5%).
+   - **🚨 Alertas Ativos (Firing):** quantidade de alertas disparados no Prometheus naquele instante.
+   - **🩺 Pods Ativos (HPA):** total de containers da aplicação rodando no namespace `toggle-master`.
+   - **🖥️ Nodes EKS Ativos (Cluster):** quantidade de máquinas EC2 (`t3.medium`) saudáveis no cluster Kubernetes.
+
+2. **Faixa 2 — Diagnóstico de Erros Lado a Lado:**
+   - **Esquerda (`🔥 Golden Signal: Errors — Taxa de Erro HTTP 5xx por Microsserviço`):** gráfico de linha mostrando qual dos 5 microsserviços está gerando erro 500, com uma faixa vermelha marcando o limite do alerta (`5%`).
+   - **Direita (`🪵 Causa Raiz Imediata: Logs de ERRO em Tempo Real`):** painel do **Loki** filtrando automaticamente apenas linhas com `ERROR` (`{service_name=~".+"} |= "ERROR"`), exibindo a mensagem do erro e o `trace_id` clicável.
+
+3. **Faixa 3 — Performance, Tráfego & APM Lado a Lado:**
+   - **Esquerda Superior (`⏱️ Golden Signal: Latency`):** tempo médio de resposta (em milissegundos) de cada microsserviço.
+   - **Direita Superior (`🗺️ Service Graph Metrics: Client ➔ Server RPS`):** taxa de chamadas por segundo de um serviço para outro (ex: `evaluation-service ➔ flag-service`), gerada pelo conector `servicegraph` do OTel Collector.
+   - **Esquerda Inferior (`🚦 Golden Signal: Traffic`):** volume de requisições recebidas por cada um dos 5 microsserviços.
+   - **Direita Inferior (`🔎 Distributed Tracing — Grafana Tempo`):** tabela ao vivo com os últimos traces recebidos; clicando no `TraceID`, abre o **Flamegraph** detalhando cada etapa da requisição (HTTP, Redis, Postgres, SQS e DynamoDB).
+
+4. **Faixa 4 — Escalabilidade do EKS, Saturação e Stream de Logs Lado a Lado:**
+   - **Esquerda Superior (`🖥️ Escalabilidade do Cluster EKS & Réplicas HPA`):** mostra o número de Worker Nodes ativos por zona da AWS e quantas réplicas o **HPA** mantém para cada microsserviço.
+   - **Esquerda Inferior (`📈 Golden Signal: Saturation — Uso de CPU por Pod`):** consumo de CPU (em cores) de cada pod no namespace `toggle-master`.
+   - **Direita (`📜 Stream Completo de Logs Estruturados OTLP`):** todos os logs (`INFO`, `WARN` e `ERROR`) dos 5 microsserviços em tempo real no Loki (ocultando o ruído de `/health`).
+
+### 2.4. Alertas Inteligentes, PagerDuty, Discord (ChatOps) e Self-Healing (`gitops/observability/self-healing/`)
+
+#### 1. Explicação de Cada Alerta (`prometheus/configmap.yml`)
+- **`ToggleMasterHighErrorRate5xx` (Severidade: `critical` | `self_healing: "true"` | Runbook `RB-001`):**
+  - **O que monitora:** calcula a proporção de respostas HTTP `5xx` sobre o tráfego total de cada microsserviço.
+  - **Por que é inteligente:** exige que a taxa de erro fique **acima de 5% por 30 segundos seguidos** (`for: 30s`), evitando alarmes falsos por oscilações rápidas de rede.
+  - **O que faz:** abre incidente crítico no **PagerDuty**, notifica no **Discord** e aciona o **Self-Healing** para reiniciar o pod com falha.
+- **`ToggleMasterHighLatencyP95` (Severidade: `warning` | `self_healing: "false"` | Runbook `RB-002`):**
+  - **O que monitora:** verifica se o percentil `p95` de latência de algum serviço passou de **1000ms (1 segundo) por 1 minuto seguido** (`for: 1m`).
+  - **O que faz:** emite apenas um alerta de **aviso (Warning)** para investigação de lentidão no banco/cache, mas **não reinicia o pod** (`self_healing: "false"`), pois reiniciar um pod durante pico de lentidão no banco agravaria o problema.
+
+#### 2. Prevenção de Alert Fatigue (`alertmanager/configmap.yml`)
+- **Agrupamento (`group_by`):** agrupa alertas por `['alertname', 'service_name', 'namespace']` (`group_wait: 15s`, `group_interval: 1m`, `repeat_interval: 1h`) para não disparar dezenas de mensagens repetidas.
+- **Deduplicação (`dedup_key`):** envia uma chave única do incidente para o PagerDuty, garantindo que apenas **1 chamado** seja aberto por falha.
+- **Regra de Inibição (`inhibit_rules`):** se um serviço já estiver com o alerta **Crítico** de Erro 500 (`ToggleMasterHighErrorRate5xx`) ativo, o Alertmanager **silencia automaticamente** o alerta **Warning** de Lentidão (`ToggleMasterHighLatencyP95`) daquele mesmo serviço para não duplicar notificações.
+
+#### 3. Passo a Passo do Fluxo (Prometheus ➔ Alertmanager ➔ PagerDuty, Self-Healing e Discord)
+> **Nota:** O **Grafana** atua apenas na **visualização** (lendo dados do Prometheus, Loki e Tempo). Todo o fluxo de disparo de alertas e automação acontece diretamente entre **Prometheus**, **Alertmanager** e o **`self-healing-webhook`**:
+
+1. **Momento 1 — Quando a falha acontece (`status: firing`):**
+   - O **Prometheus** detecta que o erro 5xx passou de 5% por 30s e envia o alerta para o **Alertmanager**.
+   - O **Alertmanager** faz dois disparos simultâneos:
+     1. Chama a API do **PagerDuty** (`Events API v2`) abrindo o incidente para o plantonista;
+     2. Chama o **1º Webhook (Interno)** do nosso pod `self-healing-webhook` (`POST http://self-healing-webhook.observability:8080/webhook`).
+   - O pod **`self-healing-webhook`** (Python com RBAC restrito `self-healing-sa` e *cooldown* de 60s):
+     1. Chama o **2º Webhook (Externo do Discord)** enviando o **1º Card Vermelho (`🚨 [FIRING]`)**;
+     2. Chama a **API do Kubernetes** executando o `kubectl rollout restart` (`PATCH` no Deployment do serviço com falha no namespace `toggle-master`);
+     3. Chama novamente o **Webhook do Discord** enviando o **2º Card Azul (`🛠️ [SELF-HEALING EXECUTADO]`)**.
+
+2. **Momento 2 — Quando o serviço se recupera (`status: resolved`):**
+   - Assim que o pod novo sobe saudável, o **Prometheus** mede que a taxa de erro 5xx voltou para **0%** e avisa o **Alertmanager** que o alerta foi encerrado.
+   - O **Alertmanager** envia o comando de **Auto-Resolve** (`send_resolved: true`) para o **PagerDuty**, que fecha o incidente sozinho.
+   - O **Alertmanager** avisa o `self-healing-webhook` (`status: resolved`), que envia o **3º Card Verde (`🟢 [RESOLVED]`)** no **Webhook do Discord**.
 
 #### Diagrama de Sequência: Fluxo de Alerta, ChatOps e Self-Healing
 
