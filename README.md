@@ -151,7 +151,6 @@ O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertman
 - **Regra de Inibição (`inhibit_rules`):** se um serviço já estiver com o alerta **Crítico** de Erro 500 (`ToggleMasterHighErrorRate5xx`) ativo, o Alertmanager **silencia automaticamente** o alerta **Warning** de Lentidão (`ToggleMasterHighLatencyP95`) daquele mesmo serviço para não duplicar notificações.
 
 #### 3. Passo a Passo do Fluxo (Prometheus ➔ Alertmanager ➔ PagerDuty, Self-Healing e Discord)
-> **Nota:** O **Grafana** atua apenas na **visualização** (lendo dados do Prometheus, Loki e Tempo). Todo o fluxo de disparo de alertas e automação acontece diretamente entre **Prometheus**, **Alertmanager** e o **`self-healing-webhook`**:
 
 1. **Momento 1 — Quando a falha acontece (`status: firing`):**
    - O **Prometheus** detecta que o erro 5xx passou de 5% por 30s e envia o alerta para o **Alertmanager**.
