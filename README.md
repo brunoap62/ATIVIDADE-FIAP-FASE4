@@ -78,12 +78,36 @@ Em vez de cada microsserviço conhecer o endereço do Prometheus, do Loki ou da 
 - **Exporters:** roteia métricas para o **Prometheus** (`:8889`), logs em formato OTLP para o **Loki** (`http://loki:3100/otlp`) e traces para o **Grafana Tempo** (`tempo:4317`).
 
 ### 2.2. Instrumentação dos 5 Microsserviços e Propagação de Contexto
-O código-fonte dos 5 microsserviços foi instrumentado para propagar o cabeçalho padrão W3C (`traceparent`) de ponta a ponta:
-1. Uma chamada em `GET /evaluate` no `evaluation-service` cria o span raiz, registra a consulta ao **Redis** (`Redis Get Cache` / `Redis Set Cache`) e, em caso de *cache miss*, repassa o `traceparent` nas chamadas HTTP para `flag-service` e `targeting-service`.
-2. O `flag-service` e o `targeting-service` extraem o `traceparent`, consultam seus respectivos bancos PostgreSQL e repassam o mesmo contexto ao validar o token no `auth-service` (`GET /validate`).
-3. Na publicação do evento para a fila **AWS SQS**, o `evaluation-service` injeta o `traceparent` nos `MessageAttributes` da mensagem.
-4. O `analytics-service` lê o `traceparent` da mensagem recebida do SQS, continua o mesmo trace e registra o span de escrita no **DynamoDB** (`DynamoDB PutItem`).
-5. Todos os logs emitidos pelos serviços incluem `trace_id` e `span_id` no JSON, permitindo ir direto do erro no gráfico para o log no Loki e para o trace correspondente.
+Em vez de usar webhooks para telemetria, adicionamos um **Middleware do OpenTelemetry** na entrada e saída de cada um dos 5 microsserviços (`otel.go` nos serviços em Go e `telemetry.py` nos serviços em Python/Flask):
+
+1. **Na Entrada do Serviço (Lê o Header `traceparent`):** quando uma requisição chega, o Middleware verifica os cabeçalhos HTTP. Se for o primeiro serviço (`evaluation-service`), ele cria um `trace_id` novo. Se for um serviço seguinte (`flag-service`, `targeting-service` ou `auth-service`), ele lê o cabeçalho padrão W3C **`traceparent`** enviado pelo serviço anterior e continua usando o mesmo `trace_id`.
+2. **Na Saída para o Próximo Serviço (Repassa o `traceparent`):** quando um serviço faz uma chamada HTTP para outro ou publica uma mensagem na fila **AWS SQS** (usando `MessageAttributes`), o código injeta o cabeçalho `traceparent` para que o próximo serviço saiba que faz parte da mesma requisição.
+3. **Ao Finalizar a Requisição (Envia OTLP na porta `4318`):** ao terminar de responder, o Middleware calcula o tempo de duração, captura o status HTTP (`200`, `500`, etc.), anexa o `trace_id` e `span_id` nos logs JSON e envia tudo via protocolo **OTLP HTTP** para o `otel-collector` (`http://otel-collector.observability:4318`). É assim que o Grafana costura os 5 serviços no mesmo Trace Distribuído e desenha o **Service Map**.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Cliente
+    participant Eval as evaluation-service (Go)
+    participant Flag as flag-service (Python)
+    participant Auth as auth-service (Go)
+    participant SQS as AWS SQS + analytics-service
+    participant OTel as OTel Collector (:4318)
+
+    Client->>Eval: GET /evaluate
+    Note over Eval: Middleware cria trace_id novo
+    Eval->>Flag: GET /flags (Header: traceparent)
+    Note over Flag: Middleware lê traceparent (mesmo trace_id)
+    Flag->>Auth: GET /validate (Header: traceparent)
+    Auth-->>Flag: 200 OK
+    Flag-->>Eval: 200 OK
+    Eval->>SQS: Publica evento (SQS MessageAttribute: traceparent)
+    Eval-->>Client: 200 OK
+    Eval->>OTel: Envia Spans + Métricas + Logs JSON (OTLP HTTP :4318)
+    Flag->>OTel: Envia Spans + Métricas + Logs JSON (OTLP HTTP :4318)
+    Auth->>OTel: Envia Spans + Métricas + Logs JSON (OTLP HTTP :4318)
+    SQS->>OTel: Envia Spans + Métricas + Logs JSON (OTLP HTTP :4318)
+```
 
 ### 2.3. Monitoramento no K8s e Dashboard no Grafana (`gitops/observability/grafana/`)
 O Grafana já sobe com as datasources (`Prometheus`, `Loki`, `Tempo` e `Alertmanager`) e o dashboard customizado provisionados via ConfigMap:
@@ -119,26 +143,22 @@ sequenceDiagram
     participant K8s as Kubernetes API (EKS)
     participant Disc as Discord (Webhook)
 
-    rect rgb(255, 235, 235)
     Note over App,Disc: MOMENTO 1 — Falha Detectada (status: firing)
     App->>Prom: Taxa de erro HTTP 5xx > 5% por 30s
     Prom->>AM: Dispara alerta ToggleMasterHighErrorRate5xx (FIRING)
     AM->>PD: Abre incidente (event_action: trigger + dedup_key)
     AM->>SH: POST /webhook (Webhook interno no cluster)
-    SH->>Disc: 1º Card Vermelho (🚨 [FIRING] Incidente detectado)
+    SH->>Disc: 1º Card Vermelho (FIRING - Incidente detectado)
     SH->>K8s: PATCH Deployment (kubectl rollout restart)
     K8s->>App: Substitui pod com falha por pod novo saudável
-    SH->>Disc: 2º Card Azul (🛠️ [SELF-HEALING EXECUTADO])
-    end
+    SH->>Disc: 2º Card Azul (SELF-HEALING EXECUTADO)
 
-    rect rgb(235, 255, 235)
     Note over App,Disc: MOMENTO 2 — Serviço Recuperado (status: resolved)
     App->>Prom: Taxa de erro HTTP 5xx volta para 0%
     Prom->>AM: Alerta encerrado (RESOLVED)
     AM->>PD: Auto-Resolve fecha o incidente sozinho (send_resolved: true)
     AM->>SH: POST /webhook (status: resolved)
-    SH->>Disc: 3º Card Verde (🟢 [RESOLVED] Serviço normalizado)
-    end
+    SH->>Disc: 3º Card Verde (RESOLVED - Serviço normalizado)
 ```
 
 ---
