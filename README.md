@@ -273,8 +273,19 @@ Evidência de terminal lado a lado durante a execução do teste prático:
 ## 5. Segurança de Segredos e Decisões de Infraestrutura (Terraform)
 
 - **Zero segredos hardcoded no repositório:** senhas do RDS, chave interna de API do `evaluation-service`, `pagerduty_routing_key` e `discord_webhook_url` são gerenciados como `SecureString` no **AWS SSM Parameter Store** (`terraform/modules/ssm-parameters/`) e injetados no EKS através do **External Secrets Operator (ESO)**.
-- **Criptografia e FinOps no RDS (`terraform/modules/rds/`):** todas as instâncias PostgreSQL utilizam discos `gp3` com criptografia em repouso habilitada (`storage_encrypted = true`). Para manter o custo do laboratório acadêmico controlado e permitir destruição rápida do ambiente sem cobrança residual de snapshots, utilizamos Single-AZ (`multi_az = false`), `backup_retention_period = 0` e `skip_final_snapshot = true`.
+- **Criptografia no RDS (`terraform/modules/rds/`):** todas as instâncias PostgreSQL utilizam discos `gp3` com criptografia em repouso habilitada (`storage_encrypted = true`).
 - **Pipelines CI/CD e IaC (`.github/workflows/`):** workflows para os 5 microsserviços e para o Terraform (`ci-terraform.yml`) com testes unitários, linters (`golangci-lint`, `flake8`, `terraform fmt/validate`) e scans bloqueantes (`exit-code: "1"`) no Trivy e Horusec.
+
+### 5.1. Decisões Conscientes (Trade-offs de FinOps, Segurança e Ambiente de Laboratório)
+
+1. **Stacks de observabilidade com `emptyDir` sem PVC/EBS (ConfigMaps via GitOps):**
+   No meu Dashboard, os Datasources e as Regras de Alerta estão 100% declarados como código em ConfigMaps no GitOps, portanto não perdemos nenhuma configuração se um pod reiniciar. Por isso utilizamos volumes `emptyDir` com retenção de 24h no Prometheus, Loki e Tempo para economizar a criação de discos EBS extras no laboratório Free Tier, enquanto em um ambiente produtivo faria com `StatefulSet` com PVC (`gp3`) no Prometheus e buckets S3 no Loki e Tempo.
+2. **Grafana usando `GF_AUTH_ANONYMOUS_ENABLED`:**
+   Estou utilizando o modo anonymous como `true` de forma totalmente consciente para facilitar meu dia a dia manuseando a aplicação de forma mais simples no laboratório; em produção não faria dessa forma (utilizaria autenticação SSO/OAuth2 e RBAC restrito).
+3. **Grafana via `ClusterIP` sem LoadBalancer:**
+   Optei por manter o Service do Grafana como `ClusterIP` e acessá-lo via `kubectl port-forward` tanto por **FinOps** — já que o Ingress NGINX já consome o único Load Balancer coberto pelas 750h mensais do Free Tier da AWS — quanto por **Segurança (DevSecOps)**, evitando expor painéis internos de monitoramento na internet pública.
+4. **RDS com `backup_retention_period = 0` e `skip_final_snapshot = true`:**
+   No RDS, foi uma decisão consciente de **FinOps** para um ambiente Free Tier efêmero: desativei a retenção de backups e o snapshot final para permitir a destruição 100% automatizada via `terraform destroy` e evitar cobrança residual de snapshots na AWS após encerrar o laboratório do Free Tier.
 
 ---
 
