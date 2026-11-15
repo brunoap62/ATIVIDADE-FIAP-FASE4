@@ -20,4 +20,4 @@ resources:
 images:
 - name: fase2-auth-service
   newName: 052717076243.dkr.ecr.us-east-2.amazonaws.com/toggle-master-fase4/auth-service
-  newTag: 2ac7cee4af8835b9bd1f423c693244777b459617
+  newTag: b4c1778b09d1e1bf3445ce1ef62c0f9179b4e654
